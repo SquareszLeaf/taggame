@@ -47874,6 +47874,14 @@ void main(void) {
                 else group.SetGroupActive(!group.IsGroupActive())
             },
             SetTimescale(ts) {
+                // [mod] resume countdown: the pause menu's resume actions (button + Esc) count down 3-2-1 before unpausing
+                const act = this._runtime.GetCurrentAction();
+                const sid = act ? act.GetSID() : 0;
+                if (ts > 0 && (sid === 448048737005148 || sid === 229875909645099)) {
+                    self.__resumeCountdown(this._runtime, ts);
+                    return
+                }
+                self.__resumeCountdown.cancel();
                 this._runtime.SetTimeScale(ts)
             },
             SetObjectTimescale(objectClass, ts) {
@@ -63232,3 +63240,39 @@ void main(void) {
 
 
 }
+// [mod] resume countdown overlay
+self.__resumeCountdown = (() => {
+    let token = 0, el = null;
+    const STEPS = ["3", "2", "1", "GO!"];
+    function overlay() {
+        if (el) return el;
+        el = document.createElement("div");
+        el.style.cssText = "position:fixed;inset:0;display:none;align-items:center;justify-content:center;" +
+            "pointer-events:none;z-index:9999;font:900 22vmin/1 'Arial Black',Arial,sans-serif;color:#fff;" +
+            "-webkit-text-stroke:1.2vmin #000;paint-order:stroke fill;text-shadow:0 1vmin 0 rgba(0,0,0,.35)";
+        document.body.appendChild(el);
+        return el;
+    }
+    function show(text) {
+        const o = overlay();
+        o.textContent = text;
+        o.style.display = "flex";
+        o.animate([{ transform: "scale(1.6)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }],
+            { duration: 250, easing: "ease-out" });
+    }
+    function hide() { if (el) el.style.display = "none"; }
+    function start(runtime, ts) {
+        const my = ++token;
+        runtime.SetTimeScale(0);
+        STEPS.forEach((t, i) => setTimeout(() => {
+            if (my !== token) return;
+            show(t);
+            if (i === STEPS.length - 1) {
+                runtime.SetTimeScale(ts);
+                setTimeout(() => { if (my === token) hide(); }, 500);
+            }
+        }, i * 1000));
+    }
+    start.cancel = () => { token++; hide(); };
+    return start;
+})();
