@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tag Sprite Editor</title>
+<style>
+  :root {
+    --bg: #15171c; --panel: #1d2027; --panel2: #252932; --line: #333845;
+    --text: #e8eaf0; --dim: #9aa0ad; --accent: #5b8cff; --accent2: #3c6ef0; --ok: #3ecf8e; --warn: #ffb547;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+  button { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: #4a5160; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover { background: var(--accent2); }
+  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .45; cursor: default; }
+  .app { display: grid; grid-template-columns: 260px 1fr; height: 100vh; }
+
+  /* sidebar */
+  aside { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  aside h1 { font-size: 16px; margin: 14px 14px 10px; }
+  aside input { margin: 0 14px 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); }
+  #objects { overflow-y: auto; flex: 1; padding: 0 8px 12px; }
+  .obj { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; cursor: pointer; }
+  .obj:hover { background: var(--panel2); }
+  .obj.sel { background: var(--accent); color: #fff; }
+  .obj canvas { width: 40px; height: 40px; flex: none; border-radius: 6px; background: var(--bg); object-fit: contain; }
+  .obj .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .obj .c { margin-left: auto; font-size: 12px; color: var(--dim); }
+  .obj.sel .c { color: #dbe5ff; }
+  .obj .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; display: none; }
+  .obj.dirty .dot { display: block; }
+
+  /* main */
+  main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  .bar .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
+  .bar label { color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  .bar input[type=color] { width: 36px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
+  .bar input[type=range] { width: 90px; }
+  .spacer { flex: 1; }
+  #status { color: var(--dim); font-size: 13px; }
+  #status.ok { color: var(--ok); } #status.warn { color: var(--warn); }
+
+  #anims { display: flex; gap: 6px; padding: 10px 14px 0; flex-wrap: wrap; }
+  #anims button { padding: 4px 10px; font-size: 13px; }
+  #frames { display: flex; gap: 8px; padding: 10px 14px; overflow-x: auto; border-bottom: 1px solid var(--line); min-height: 86px; }
+  .frame { flex: none; width: 64px; cursor: pointer; text-align: center; font-size: 11px; color: var(--dim); }
+  .frame canvas { width: 64px; height: 64px; border: 2px solid transparent; border-radius: 8px; background: var(--panel2); object-fit: contain; display: block; }
+  .frame.sel canvas { border-color: var(--accent); }
+
+  #stage { flex: 1; overflow: auto; display: grid; place-items: center; padding: 24px; position: relative; min-height: 0; }
+  #view { image-rendering: pixelated; cursor: crosshair; box-shadow: 0 0 0 1px var(--line), 0 10px 40px #0008;
+    background-color: #fff; background-image:
+      linear-gradient(45deg, #d6d9e0 25%, transparent 25%), linear-gradient(-45deg, #d6d9e0 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #d6d9e0 75%), linear-gradient(-45deg, transparent 75%, #d6d9e0 75%);
+    background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0; }
+  #empty { color: var(--dim); text-align: center; max-width: 420px; }
+  #empty b { color: var(--text); }
+  #info { position: absolute; left: 14px; bottom: 10px; color: var(--dim); font-size: 12px; }
+
+  #placeBar { display: none; gap: 8px; align-items: center; padding: 10px 14px; background: #2a2f1f; border-bottom: 1px solid #4a5530; flex-wrap: wrap; }
+  #placeBar.show { display: flex; }
+  #placeBar span { color: #e6f0c8; }
+  #drop { position: fixed; inset: 0; background: #5b8cffcc; color: #fff; font-size: 28px; font-weight: 700;
+    display: none; place-items: center; z-index: 10; pointer-events: none; }
+  #drop.show { display: grid; }
+  kbd { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>Tag Sprite Editor</h1>
+    <input id="search" placeholder="Search objects… (skin, item, map)" autocomplete="off">
+    <div id="objects"></div>
+  </aside>
+  <main>
+    <div class="bar">
+      <button data-tool="pencil" title="Brush (B)">🖌️ Brush</button>
+      <button data-tool="eraser" title="Eraser (E)">🧽 Eraser</button>
+      <button data-tool="fill" title="Fill (G)">🪣 Fill</button>
+      <button data-tool="picker" title="Pick color (I)">💧 Pick</button>
+      <div class="sep"></div>
+      <label>Color <input type="color" id="color" value="#ff3b6b"></label>
+      <label>Opacity <input type="range" id="alpha" min="0" max="100" value="100"></label>
+      <label>Size <input type="range" id="size" min="1" max="64" value="6"><span id="sizeVal">6</span></label>
+      <div class="sep"></div>
+      <button id="undo" title="Undo (Ctrl/Cmd+Z)">↶</button>
+      <button id="redo" title="Redo (Ctrl/Cmd+Shift+Z)">↷</button>
+      <button id="zoomOut" title="Zoom out (-)">−</button>
+      <button id="zoomIn" title="Zoom in (+)">+</button>
+      <div class="sep"></div>
+      <button id="importBtn" title="Upload an image, or paste one with Ctrl/Cmd+V">🖼️ Replace with image…</button>
+      <button id="clearBtn" title="Erase the whole frame">Clear</button>
+      <button id="downloadBtn" title="Download this frame as a PNG">⬇ PNG</button>
+      <div class="spacer"></div>
+      <span id="status"></span>
+      <button id="saveBtn" class="primary" title="Save all changes into the game (Ctrl/Cmd+S)" disabled>Save</button>
+    </div>
+    <div id="placeBar">
+      <span>Image placed. How should it fit?</span>
+      <button data-fit="contain" class="on">Fit</button>
+      <button data-fit="cover">Fill</button>
+      <button data-fit="stretch">Stretch</button>
+      <div class="sep"></div>
+      <span>Also use it for:</span>
+      <button id="applyAnim">every frame in this animation</button>
+      <button id="applyObject">every frame of this object</button>
+      <button id="placeDone">Done</button>
+    </div>
+    <div id="anims"></div>
+    <div id="frames"></div>
+    <div id="stage">
+      <div id="empty">
+        <p>Pick something on the left to edit it.</p>
+        <p>Draw on it, or press <b>Replace with image…</b> (or just paste an image with <kbd>Ctrl/Cmd</kbd>+<kbd>V</kbd>, or drag one in).</p>
+        <p>Hit <b>Save</b> and reload the game to see it.</p>
+      </div>
+      <canvas id="view" hidden></canvas>
+      <div id="info"></div>
+    </div>
+  </main>
+</div>
+<div id="drop">Drop image to replace this frame</div>
+<input type="file" id="file" accept="image/*" hidden>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+// ---------------------------------------------------------------- data.json -> objects/frames
+// Sprite frame format in data.json: [url, fileSize, offsetX, offsetY, width, height, isRotated, ...]
+// Rotated frames are stored turned 90° in the sheet (same handling as the engine's ExtractImageToCanvas).
+let objects = [];
+const sheets = new Map();   // url -> { canvas, ctx, dirty, ready: Promise }
+
+function frameFrom(a) {
+  return { url: a[0], ox: a[2], oy: a[3], w: a[4], h: a[5], rot: !!a[6] };
+}
+
+async function loadProject() {
+  const d = (await (await fetch("../data.json", { cache: "no-store" })).json()).project;
+  for (const o of d[3]) {
+    let anims = null;
+    if (Array.isArray(o[7]) && o[7].length) {
+      anims = o[7].map(a => ({ name: a[0], frames: a[7].map(frameFrom) }));
+    } else if (Array.isArray(o[6]) && typeof o[6][0] === "string") {
+      anims = [{ name: "image", frames: [frameFrom(o[6])] }];
+    }
+    if (!anims) continue;
+    const count = anims.reduce((n, a) => n + a.frames.length, 0);
+    objects.push({ name: o[0], anims, count });
+  }
+  objects.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+}
+
+function getSheet(url) {
+  let s = sheets.get(url);
+  if (s) return s.ready;
+  s = { dirty: false };
+  s.ready = new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      s.canvas = document.createElement("canvas");
+      s.canvas.width = img.naturalWidth;
+      s.canvas.height = img.naturalHeight;
+      s.ctx = s.canvas.getContext("2d", { willReadFrequently: true });
+      s.ctx.drawImage(img, 0, 0);
+      resolve(s);
+    };
+    img.onerror = () => reject(new Error("could not load " + url));
+    img.src = "../" + url + "?t=" + Date.now();
+  });
+  sheets.set(url, s);
+  return s.ready;
+}
+
+// copy a frame out of its sheet into its own canvas (upright)
+async function extractFrame(f) {
+  const s = await getSheet(f.url);
+  const c = document.createElement("canvas");
+  c.width = f.w; c.height = f.h;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  if (f.rot) {
+    ctx.rotate(-Math.PI / 2);
+    ctx.translate(-f.h, 0);
+    ctx.drawImage(s.canvas, f.ox, f.oy, f.h, f.w, 0, 0, f.h, f.w);
+  } else ctx.drawImage(s.canvas, f.ox, f.oy, f.w, f.h, 0, 0, f.w, f.h);
+  return c;
+}
+
+// write an upright frame canvas back into its sheet
+async function writeFrame(f, frameCanvas) {
+  const s = await getSheet(f.url);
+  const rw = f.rot ? f.h : f.w, rh = f.rot ? f.w : f.h;
+  s.ctx.save();
+  s.ctx.clearRect(f.ox, f.oy, rw, rh);
+  s.ctx.beginPath();
+  s.ctx.rect(f.ox, f.oy, rw, rh);
+  s.ctx.clip();
+  if (f.rot) s.ctx.setTransform(0, 1, -1, 0, f.ox + f.h, f.oy);   // inverse of extractFrame's rotation
+  else s.ctx.setTransform(1, 0, 0, 1, f.ox, f.oy);
+  s.ctx.drawImage(frameCanvas, 0, 0);
+  s.ctx.restore();
+  s.dirty = true;
+}
+
+// ---------------------------------------------------------------- UI state
+const state = {
+  obj: null, anim: 0, frame: 0,
+  work: null, workCtx: null,      // the frame being edited (upright, real size)
+  undo: [], redo: [],
+  tool: "pencil", zoom: 1,
+  placing: null,                  // { img, fit } while a pasted image is being placed
+};
+const view = $("view"), vctx = view.getContext("2d");
+
+function setStatus(text, cls = "") {
+  $("status").textContent = text;
+  $("status").className = cls;
+}
+function anyDirty() { for (const s of sheets.values()) if (s.dirty) return true; return false; }
+function refreshSave() {
+  const dirty = anyDirty();
+  $("saveBtn").disabled = !dirty;
+  if (dirty) setStatus("Unsaved changes", "warn");
+}
+
+// ---------------------------------------------------------------- sidebar
+function thumbInto(canvas, frameCanvas) {
+  const size = 80;
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const k = Math.min(size / frameCanvas.width, size / frameCanvas.height);
+  const w = frameCanvas.width * k, h = frameCanvas.height * k;
+  ctx.clearRect(0, 0, size, size);
+  ctx.drawImage(frameCanvas, (size - w) / 2, (size - h) / 2, w, h);
+}
+
+function renderObjects() {
+  const q = $("search").value.trim().toLowerCase();
+  const list = $("objects");
+  list.innerHTML = "";
+  for (const o of objects) {
+    if (q && !o.name.toLowerCase().includes(q)) continue;
+    const row = document.createElement("div");
+    row.className = "obj" + (o === state.obj ? " sel" : "");
+    row.innerHTML = `<canvas></canvas><span class="n"></span><span class="dot" title="unsaved"></span><span class="c">${o.count}</span>`;
+    row.querySelector(".n").textContent = o.name;
+    row.title = o.name;
+    row.onclick = () => selectObject(o);
+    o.row = row;
+    if (sheets.get(o.anims[0].frames[0].url)?.dirty) row.classList.add("dirty");
+    extractFrame(o.anims[0].frames[0]).then(c => thumbInto(row.querySelector("canvas"), c)).catch(() => {});
+    list.appendChild(row);
+  }
+}
+
+function markObjectRowsDirty() {
+  for (const o of objects) {
+    if (!o.row) continue;
+    const dirty = o.anims.some(a => a.frames.some(f => sheets.get(f.url)?.dirty));
+    o.row.classList.toggle("dirty", dirty);
+  }
+}
+
+// ---------------------------------------------------------------- animations / frames
+function selectObject(o) {
+  state.obj = o;
+  state.anim = 0;
+  for (const el of document.querySelectorAll(".obj")) el.classList.remove("sel");
+  if (o.row) o.row.classList.add("sel");
+  renderAnims();
+  selectFrame(0);
+}
+
+function renderAnims() {
+  const box = $("anims");
+  box.innerHTML = "";
+  const o = state.obj;
+  if (o.anims.length > 1) {
+    o.anims.forEach((a, i) => {
+      const b = document.createElement("button");
+      b.textContent = `${a.name} (${a.frames.length})`;
+      if (i === state.anim) b.classList.add("on");
+      b.onclick = () => { state.anim = i; renderAnims(); selectFrame(0); };
+      box.appendChild(b);
+    });
+  }
+  renderFrames();
+}
+
+function renderFrames() {
+  const box = $("frames");
+  box.innerHTML = "";
+  state.obj.anims[state.anim].frames.forEach((f, i) => {
+    const el = document.createElement("div");
+    el.className = "frame" + (i === state.frame ? " sel" : "");
+    el.innerHTML = `<canvas></canvas>${i + 1}`;
+    el.onclick = () => selectFrame(i);
+    extractFrame(f).then(c => thumbInto(el.querySelector("canvas"), c));
+    box.appendChild(el);
+  });
+}
+
+function updateFrameThumb() {
+  const el = $("frames").children[state.frame];
+  if (el) thumbInto(el.querySelector("canvas"), state.work);
+  if (state.obj.row && state.anim === 0 && state.frame === 0) thumbInto(state.obj.row.querySelector("canvas"), state.work);
+}
+
+async function selectFrame(i) {
+  endPlacing();
+  state.frame = i;
+  [...$("frames").children].forEach((el, j) => el.classList.toggle("sel", j === i));
+  const f = currentFrame();
+  state.work = await extractFrame(f);
+  state.workCtx = state.work.getContext("2d", { willReadFrequently: true });
+  state.undo = []; state.redo = [];
+  // fit to the stage
+  const stage = $("stage");
+  const fit = Math.min((stage.clientWidth - 60) / f.w, (stage.clientHeight - 60) / f.h);
+  state.zoom = Math.max(0.25, Math.min(fit, 16));
+  $("empty").hidden = true;
+  view.hidden = false;
+  render();
+}
+
+function currentFrame() { return state.obj.anims[state.anim].frames[state.frame]; }
+
+function render() {
+  if (!state.work) return;
+  const f = currentFrame();
+  view.width = Math.round(f.w * state.zoom);
+  view.height = Math.round(f.h * state.zoom);
+  vctx.imageSmoothingEnabled = state.zoom < 1;
+  vctx.clearRect(0, 0, view.width, view.height);
+  vctx.drawImage(state.work, 0, 0, view.width, view.height);
+  $("info").textContent = `${state.obj.name} › ${state.obj.anims[state.anim].name} › frame ${state.frame + 1}  ·  ${f.w}×${f.h} px` +
+    `  ·  zoom ${Math.round(state.zoom * 100)}%  ·  ${f.url.replace("images/", "")}`;
+  $("undo").disabled = !state.undo.length;
+  $("redo").disabled = !state.redo.length;
+}
+
+// ---------------------------------------------------------------- history + commit
+function snapshot() {
+  state.undo.push(state.workCtx.getImageData(0, 0, state.work.width, state.work.height));
+  if (state.undo.length > 60) state.undo.shift();
+  state.redo = [];
+}
+async function commit() {
+  await writeFrame(currentFrame(), state.work);
+  updateFrameThumb();
+  markObjectRowsDirty();
+  refreshSave();
+  render();
+}
+function undo() {
+  if (!state.undo.length) return;
+  endPlacing();
+  state.redo.push(state.workCtx.getImageData(0, 0, state.work.width, state.work.height));
+  state.workCtx.putImageData(state.undo.pop(), 0, 0);
+  commit();
+}
+function redo() {
+  if (!state.redo.length) return;
+  state.undo.push(state.workCtx.getImageData(0, 0, state.work.width, state.work.height));
+  state.workCtx.putImageData(state.redo.pop(), 0, 0);
+  commit();
+}
+
+// ---------------------------------------------------------------- drawing tools
+function brushColor() {
+  const hex = $("color").value;
+  const a = $("alpha").value / 100;
+  return { hex, a, rgba: [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16), Math.round(a * 255)] };
+}
+
+function stroke(x0, y0, x1, y1) {
+  const ctx = state.workCtx;
+  const size = +$("size").value;
+  const { hex, a } = brushColor();
+  ctx.save();
+  ctx.globalCompositeOperation = state.tool === "eraser" ? "destination-out" : "source-over";
+  ctx.globalAlpha = state.tool === "eraser" ? 1 : a;
+  ctx.fillStyle = ctx.strokeStyle = hex;
+  if (size <= 2) {
+    // pixel-perfect line of square stamps
+    const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
+    for (let i = 0; i <= n; i++) {
+      const x = Math.floor(x0 + (x1 - x0) * i / n), y = Math.floor(y0 + (y1 - y0) * i / n);
+      ctx.fillRect(x - (size > 1 ? 1 : 0), y - (size > 1 ? 1 : 0), size, size);
+    }
+  } else {
+    ctx.lineWidth = size;
+    ctx.lineCap = ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1 + 0.01, y1);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function floodFill(x, y) {
+  const w = state.work.width, h = state.work.height;
+  const img = state.workCtx.getImageData(0, 0, w, h), d = img.data;
+  const i0 = (y * w + x) * 4;
+  const target = [d[i0], d[i0 + 1], d[i0 + 2], d[i0 + 3]];
+  const fill = brushColor().rgba;
+  const tol = 40;
+  const same = i => Math.abs(d[i] - target[0]) <= tol && Math.abs(d[i + 1] - target[1]) <= tol &&
+    Math.abs(d[i + 2] - target[2]) <= tol && Math.abs(d[i + 3] - target[3]) <= tol;
+  if (target.every((v, k) => v === fill[k])) return;
+  const seen = new Uint8Array(w * h);
+  const stack = [x, y];
+  while (stack.length) {
+    const py = stack.pop(), px = stack.pop();
+    if (px < 0 || py < 0 || px >= w || py >= h) continue;
+    const p = py * w + px;
+    if (seen[p]) continue;
+    seen[p] = 1;
+    const i = p * 4;
+    if (!same(i)) continue;
+    d[i] = fill[0]; d[i + 1] = fill[1]; d[i + 2] = fill[2]; d[i + 3] = fill[3];
+    stack.push(px + 1, py, px - 1, py, px, py + 1, px, py - 1);
+  }
+  state.workCtx.putImageData(img, 0, 0);
+}
+
+function pickColor(x, y) {
+  const [r, g, b, a] = state.workCtx.getImageData(x, y, 1, 1).data;
+  $("color").value = "#" + [r, g, b].map(v => v.toString(16).padStart(2, "0")).join("");
+  $("alpha").value = Math.round(a / 2.55);
+  setTool("pencil");
+}
+
+function toPixel(e) {
+  const r = view.getBoundingClientRect();
+  return [(e.clientX - r.left) / state.zoom, (e.clientY - r.top) / state.zoom];
+}
+
+let drawing = null;
+view.addEventListener("pointerdown", e => {
+  if (!state.work || e.button !== 0) return;
+  endPlacing();
+  const [x, y] = toPixel(e);
+  const px = Math.floor(x), py = Math.floor(y);
+  if (state.tool === "picker") return pickColor(px, py);
+  snapshot();
+  if (state.tool === "fill") { floodFill(px, py); return commit(); }
+  view.setPointerCapture(e.pointerId);
+  drawing = { x, y };
+  stroke(x, y, x, y);
+  render();
+});
+view.addEventListener("pointermove", e => {
+  if (!drawing) return;
+  const [x, y] = toPixel(e);
+  stroke(drawing.x, drawing.y, x, y);
+  drawing = { x, y };
+  render();
+});
+view.addEventListener("pointerup", () => { if (drawing) { drawing = null; commit(); } });
+
+function setTool(t) {
+  state.tool = t;
+  for (const b of document.querySelectorAll("[data-tool]")) b.classList.toggle("on", b.dataset.tool === t);
+  view.style.cursor = t === "picker" ? "copy" : "crosshair";
+}
+
+// ---------------------------------------------------------------- import / paste / drop
+function drawFitted(ctx, img, w, h, fit) {
+  ctx.clearRect(0, 0, w, h);
+  let dw = w, dh = h;
+  if (fit !== "stretch") {
+    const k = (fit === "cover" ? Math.max : Math.min)(w / img.width, h / img.height);
+    dw = img.width * k; dh = img.height * k;
+  }
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+}
+
+function startPlacing(img) {
+  if (!state.work) return setStatus("Pick an object first", "warn");
+  snapshot();
+  state.placing = { img, fit: "contain" };
+  $("placeBar").classList.add("show");
+  for (const b of document.querySelectorAll("[data-fit]")) b.classList.toggle("on", b.dataset.fit === "contain");
+  placeNow();
+}
+function placeNow() {
+  const p = state.placing;
+  drawFitted(state.workCtx, p.img, state.work.width, state.work.height, p.fit);
+  commit();
+}
+function endPlacing() {
+  state.placing = null;
+  $("placeBar").classList.remove("show");
+}
+async function applyToFrames(frames) {
+  const p = state.placing;
+  const current = currentFrame();
+  setStatus("Applying…");
+  for (const f of frames) {
+    if (f === current) continue;
+    const c = document.createElement("canvas");
+    c.width = f.w; c.height = f.h;
+    drawFitted(c.getContext("2d"), p.img, f.w, f.h, p.fit);
+    await writeFrame(f, c);
+  }
+  renderFrames();
+  markObjectRowsDirty();
+  refreshSave();
+  endPlacing();
+}
+
+function loadImageFile(blob) {
+  const img = new Image();
+  img.onload = () => { startPlacing(img); URL.revokeObjectURL(img.src); };
+  img.onerror = () => setStatus("That file isn't an image the browser can read", "warn");
+  img.src = URL.createObjectURL(blob);
+}
+
+$("importBtn").onclick = () => $("file").click();
+$("file").onchange = () => { if ($("file").files[0]) loadImageFile($("file").files[0]); $("file").value = ""; };
+document.addEventListener("paste", e => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
+  if (item) { e.preventDefault(); loadImageFile(item.getAsFile()); }
+});
+let dragDepth = 0;
+document.addEventListener("dragenter", e => { e.preventDefault(); if (++dragDepth === 1 && state.work) $("drop").classList.add("show"); });
+document.addEventListener("dragleave", () => { if (--dragDepth === 0) $("drop").classList.remove("show"); });
+document.addEventListener("dragover", e => e.preventDefault());
+document.addEventListener("drop", e => {
+  e.preventDefault();
+  dragDepth = 0;
+  $("drop").classList.remove("show");
+  const file = [...e.dataTransfer.files].find(f => f.type.startsWith("image/"));
+  if (file) loadImageFile(file);
+});
+for (const b of document.querySelectorAll("[data-fit]")) b.onclick = () => {
+  if (!state.placing) return;
+  state.placing.fit = b.dataset.fit;
+  for (const o of document.querySelectorAll("[data-fit]")) o.classList.toggle("on", o === b);
+  placeNow();
+};
+$("applyAnim").onclick = () => applyToFrames(state.obj.anims[state.anim].frames);
+$("applyObject").onclick = () => applyToFrames(state.obj.anims.flatMap(a => a.frames));
+$("placeDone").onclick = endPlacing;
+
+// ---------------------------------------------------------------- buttons, keys, save
+for (const b of document.querySelectorAll("[data-tool]")) b.onclick = () => setTool(b.dataset.tool);
+$("size").oninput = () => { $("sizeVal").textContent = $("size").value; };
+$("undo").onclick = undo;
+$("redo").onclick = redo;
+$("zoomIn").onclick = () => { state.zoom = Math.min(state.zoom * 1.25, 32); render(); };
+$("zoomOut").onclick = () => { state.zoom = Math.max(state.zoom / 1.25, 0.1); render(); };
+$("clearBtn").onclick = () => {
+  if (!state.work) return;
+  endPlacing();
+  snapshot();
+  state.workCtx.clearRect(0, 0, state.work.width, state.work.height);
+  commit();
+};
+$("downloadBtn").onclick = () => {
+  if (!state.work) return;
+  const a = document.createElement("a");
+  a.download = `${state.obj.name}-${state.obj.anims[state.anim].name}-${state.frame + 1}.png`;
+  a.href = state.work.toDataURL("image/png");
+  a.click();
+};
+$("stage").addEventListener("wheel", e => {
+  if (!state.work || !(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  state.zoom = Math.max(0.1, Math.min(32, state.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+  render();
+}, { passive: false });
+
+async function save() {
+  const dirty = [...sheets.entries()].filter(([, s]) => s.dirty);
+  if (!dirty.length) return;
+  $("saveBtn").disabled = true;
+  setStatus("Saving…");
+  try {
+    for (const [url, s] of dirty) {
+      const blob = await new Promise(r => s.canvas.toBlob(r, "image/png"));
+      const res = await fetch("/api/save-image?path=" + encodeURIComponent(url), { method: "POST", body: blob });
+      if (!res.ok) throw new Error(`${url}: ${res.status} ${await res.text()}`);
+      s.dirty = false;
+    }
+    markObjectRowsDirty();
+    setStatus("Saved ✓ (reload the game to see it)", "ok");
+  } catch (err) {
+    console.error(err);
+    setStatus("Save failed: is tools/editor_server.py running?", "warn");
+  }
+  refreshSave();
+}
+$("saveBtn").onclick = save;
+
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" && e.target.type !== "range" && e.target.type !== "color") return;
+  const mod = e.metaKey || e.ctrlKey;
+  const k = e.key.toLowerCase();
+  if (mod && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  else if (mod && k === "y") { e.preventDefault(); redo(); }
+  else if (mod && k === "s") { e.preventDefault(); save(); }
+  else if (mod) return;
+  else if (k === "b") setTool("pencil");
+  else if (k === "e") setTool("eraser");
+  else if (k === "g") setTool("fill");
+  else if (k === "i") setTool("picker");
+  else if (k === "+" || k === "=") $("zoomIn").click();
+  else if (k === "-") $("zoomOut").click();
+  else if (k === "[" || k === "]") {
+    $("size").value = Math.max(1, Math.min(64, +$("size").value + (k === "]" ? 2 : -2)));
+    $("size").oninput();
+  }
+});
+window.addEventListener("beforeunload", e => { if (anyDirty()) { e.preventDefault(); e.returnValue = ""; } });
+
+$("search").oninput = renderObjects;
+setTool("pencil");
+loadProject().then(renderObjects).catch(err => {
+  console.error(err);
+  $("empty").innerHTML = "<p>Couldn't load <b>data.json</b>. Start the editor with <kbd>python3 tools/editor_server.py</kbd>.</p>";
+});
+</script>
+</body>
+</html>
