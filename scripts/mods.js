@@ -6,7 +6,7 @@
 //  1. Resume countdown   - unpausing counts 3-2-1-GO before the game continues
 //  2. Powerup stacking   - grabbing the same powerup again makes it stronger and last longer,
 //                          and overlapping powerups no longer cancel each other early
-//  3. Evil star          - rare item that slows whoever grabs it
+//  3. Evil star          - rare "imposter" star that slows whoever grabs it
 //  4. Better clones      - 4 clones that move randomly instead of in sync, plus more smoke
 //  5. Hidden "it" arrow  - the arrow over whoever is "it" fades out while they use clones or invisibility
 {
@@ -185,7 +185,12 @@
     };
 
     // ---------------------------------------------------------------- 3. evil star
-    const EVIL_FRAME = 10;          // item frame added by tools/patch_data.py
+    // Looks like the real star (frame 10 reuses the star image) but every few seconds it flashes
+    // its evil face (frame 11) for a moment, so you can spot it if you're paying attention.
+    const EVIL_FRAME = 10;          // star look, added by tools/patch_data.py
+    const EVIL_FACE_FRAME = 11;     // evil face
+    const EVIL_FLASH_EVERY = [2.5, 4.5];
+    const EVIL_FLASH_SECONDS = 0.25;
     const EVIL_CHANCE = 0.07;       // chance a spawned item is an evil star
     const EVIL_SECONDS = 5;
     const EVIL_SPEED = 0.5;         // speed multiplier per stack
@@ -246,6 +251,21 @@
         setTint(runtime, st, skinOf(runtime, player, name), true);
     }
 
+    const isEvil = item => {
+        const f = item.GetSdkInstance()._currentFrameIndex;
+        return f === EVIL_FRAME || f === EVIL_FACE_FRAME;
+    };
+
+    const evilFlash = new WeakMap();  // item -> game time of its next flash
+    function flashEvil(item, now) {
+        let next = evilFlash.get(item);
+        if (next === undefined) evilFlash.set(item, next = now + rand(...EVIL_FLASH_EVERY));
+        const showFace = now >= next;
+        if (now >= next + EVIL_FLASH_SECONDS) evilFlash.set(item, now + rand(...EVIL_FLASH_EVERY));
+        const frame = showFace && now < next + EVIL_FLASH_SECONDS ? EVIL_FACE_FRAME : EVIL_FRAME;
+        if (item.GetSdkInstance()._currentFrameIndex !== frame) item.GetSdkInstance()._SetAnimFrame(frame);
+    }
+
     function tickEvil(runtime, now) {
         const itemCls = runtime.GetObjectClassByName("item");
         const coll = runtime.GetCollisionEngine();
@@ -262,7 +282,8 @@
             }
         }
         for (const item of itemCls.GetInstances()) {
-            if (item.IsDestroyed() || item.GetSdkInstance()._currentFrameIndex !== EVIL_FRAME) continue;
+            if (item.IsDestroyed() || !isEvil(item)) continue;
+            flashEvil(item, now);
             pick: for (const name of PLAYERS) {
                 for (const p of runtime.GetObjectClassByName(name).GetInstances()) {
                     if (!p.IsDestroyed() && coll.TestOverlap(p, item) && canPickUp(runtime, p, name)) {

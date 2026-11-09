@@ -1,4 +1,4 @@
-"""One-off patch of data.json: evil star item frame + extra clones per clone pickup.
+"""One-off patch of data.json: evil star item frames + extra clones per clone pickup.
 
 Safe to re-run: each step checks whether it was already applied.
 Run from the repo root:  python3 tools/patch_data.py
@@ -24,12 +24,15 @@ def new_sid():
             used.add(s)
             return s
 
-# --- 1. evil star = frame 10 of the item sprite
+# --- 1. evil star ("imposter star"): frame 10 looks like the real star (frame 4),
+#        frame 11 is its evil face, flashed briefly by scripts/mods.js
 item = next(o for o in d[3] if o[0] == 'item')
 frames = item[7][0][7]
-if not any(f[0] == 'images/evil_star.png' for f in frames):
-    frames.append(['images/evil_star.png', os.path.getsize('images/evil_star.png'), 0, 0, 256, 256, False, 1, 0.5, 0.5, [], []])
-    print('added evil star frame', len(frames) - 1)
+evil = ['images/evil_star.png', os.path.getsize('images/evil_star.png'), 0, 0, 256, 256, False, 1, 0.5, 0.5, [], []]
+wanted = [copy.deepcopy(frames[4]), evil]
+if frames[10:] != wanted:
+    frames[10:] = wanted
+    print('evil star frames set: 10 = star look, 11 = evil face')
 
 # --- 2. more clones: duplicate the clone-spawning sub-events
 def resid(e):
