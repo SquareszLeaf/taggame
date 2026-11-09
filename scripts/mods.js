@@ -8,6 +8,7 @@
 //                          and overlapping powerups no longer cancel each other early
 //  3. Evil star          - rare item that slows whoever grabs it
 //  4. Better clones      - 4 clones that move randomly instead of in sync, plus more smoke
+//  5. Hidden "it" arrow  - the arrow over whoever is "it" fades out while they use clones or invisibility
 {
     const C3 = self.C3;
     const T = self.TagModTables;
@@ -382,6 +383,40 @@
         }
     }
 
+    // ---------------------------------------------------------------- 5. hide the "it" arrow
+    // Sprite2 is the arrow over whoever is "it" (global var "voda" = 1-4). It always follows the
+    // real player, so it gave away clones and invisibility. It now fades out while the "it" player
+    // has clones running around or is invisible, and fades back in after.
+    const IT_VAR_SID = 149186097776654;  // "voda"
+    const ARROW_FADE_SPEED = 6;          // opacity per second (~0.15s fade)
+
+    function itPlayerHidden(runtime) {
+        const it = runtime.GetEventSheetManager().GetEventVariableBySID(IT_VAR_SID);
+        const name = it && PLAYERS[it.GetValue() - 1];
+        if (!name) return false;
+        let real = null;
+        for (const p of runtime.GetObjectClassByName(name).GetInstances()) {
+            if (p.IsDestroyed()) continue;
+            if (getVar(p, "isDecoy") === 1) return true;  // has clones out
+            real = real || p;
+        }
+        const skin = real && skinOf(runtime, real, name);
+        return !!skin && skin.GetWorldInfo().GetOpacity() < 1;  // invisibility powerup
+    }
+
+    function tickArrow(runtime) {
+        const cls = runtime.GetObjectClassByName("Sprite2");
+        const arrow = cls && cls.GetInstances()[0];
+        if (!arrow) return;
+        const wi = arrow.GetWorldInfo();
+        const target = itPlayerHidden(runtime) ? 0 : 1;
+        const cur = wi.GetOpacity();
+        if (cur === target) return;
+        const step = ARROW_FADE_SPEED * runtime.GetDt();
+        wi.SetOpacity(cur < target ? Math.min(target, cur + step) : Math.max(target, cur - step));
+        runtime.UpdateRender();
+    }
+
     // ---------------------------------------------------------------- per-tick hook
     let warned = false;
     function onPreTick(runtime) {
@@ -394,6 +429,7 @@
             const now = runtime.GetGameTime();
             tickEvil(runtime, now);
             tickClones(runtime, now);
+            tickArrow(runtime);
         } catch (err) {
             if (!warned) console.error("[mods] tick error", err);
             warned = true;
