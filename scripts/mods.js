@@ -11,6 +11,7 @@
 //  5. Hidden "it" arrow  - the arrow over whoever is "it" fades out while they use clones or invisibility
 //  6. Custom maps        - fish platforms, teleporter pairs and start spots from the map editor
 //  7. Slope tilt fix     - players lean the short way onto slopes instead of doing a backflip
+//  8. Camera zoom limit  - the camera never zooms out past the edges of the map
 {
     const C3 = self.C3;
     const T = self.TagModTables;
@@ -671,6 +672,53 @@
             };
         };
     } else console.warn("[mods] slope tilt expression not found; tilt fix skipped");
+
+    // ---------------------------------------------------------------- 8. camera zoom limit
+    // The camera zooms to 1 - (distance between the two farthest-apart players) / (viewport width * 3.5).
+    // On a big map (the water map is ~5800 wide with a high ceiling) that drops below the size of the
+    // map itself, or even below 0: the view ends up pinned in a corner with empty space around it.
+    // So: never zoom out wider than the map. A map is wider than a screen, so to fit its full width the
+    // view is taller than the map; when the map has walls/ceiling above its top edge (y < 0) the camera
+    // may show that extra room up there (the sky colour fills it) instead of empty space below the floor.
+    const roomCache = new WeakMap();
+    function roomAbove(layout) {  // how far the map's solid ground reaches above y = 0
+        let room = roomCache.get(layout);
+        if (room === undefined) {
+            let top = 0, solids = 0;
+            for (const layer of layout.GetLayers())
+                for (const inst of layer._GetInstances())
+                    if (inst.GetBehaviorSdkInstanceFromCtor(C3.Behaviors.solid)) {
+                        solids++;
+                        top = Math.min(top, inst.GetWorldInfo().GetBoundingBox().getTop());
+                    }
+            room = -top;
+            if (solids) roomCache.set(layout, room);  // not while the layout is still being built
+        }
+        return room;
+    }
+    const isMap = layout => layout.GetName().startsWith("map");
+    const LayoutProto = C3.Layout.prototype;
+    const origTopBound = LayoutProto.GetScrollTopBound;
+    LayoutProto.GetScrollTopBound = function () {
+        const bound = origTopBound.call(this);
+        return isMap(this) && isFinite(bound) ? bound - roomAbove(this) : bound;
+    };
+    const ZOOM_EXPR = 51;  // only used by the 4 SetLayerScale actions in the camera event
+    if (EXPRS && /C3\.distanceTo\(.*\* 3\.5\)\)\)/.test(String(EXPRS[ZOOM_EXPR]))) {
+        const origZoom = EXPRS[ZOOM_EXPR];
+        EXPRS[ZOOM_EXPR] = p => {
+            const zoom = origZoom(p);
+            return () => {
+                const z = zoom();
+                const runtime = self.c3_runtimeInterface && self.c3_runtimeInterface._localRuntime;
+                const layout = runtime && runtime.GetMainRunningLayout();
+                if (!layout || !isMap(layout)) return z;
+                const fit = Math.max(runtime.GetViewportWidth() / layout.GetWidth(),
+                                     runtime.GetViewportHeight() / (layout.GetHeight() + roomAbove(layout)));
+                return Math.max(z, Math.min(fit, 1));
+            };
+        };
+    } else console.warn("[mods] camera zoom expression not found; zoom limit skipped");
 
     // ---------------------------------------------------------------- per-tick hook
     let warned = false;
