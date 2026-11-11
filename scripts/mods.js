@@ -10,6 +10,7 @@
 //  4. Better clones      - 4 clones that move randomly instead of in sync, plus more smoke
 //  5. Hidden "it" arrow  - the arrow over whoever is "it" fades out while they use clones or invisibility
 //  6. Custom maps        - fish platforms, teleporter pairs and start spots from the map editor
+//  7. Slope tilt fix     - players lean the short way onto slopes instead of doing a backflip
 {
     const C3 = self.C3;
     const T = self.TagModTables;
@@ -654,6 +655,22 @@
         }
         runtime.UpdateRender();
     }
+
+    // ---------------------------------------------------------------- 7. slope tilt fix
+    // The game eases a player's lean towards the slope with lerp(skin.Angle, slope angle, 0.1) in
+    // degrees. Angles run 0-360, so a slope tilted the other way (-20 = 340) made players spin the
+    // long way round: a full backflip on and off it. Ease the short way instead.
+    const EXPRS = self.C3_ExpressionFuncs;
+    const TILT_EXPR = 58;  // only used by the 8 skin SetAngle actions in the "skins angle" group
+    if (EXPRS && /C3\.lerp\(n0\.ExpObject\(\), n1\.ExpObject\(\), 0\.1\)/.test(String(EXPRS[TILT_EXPR]))) {
+        EXPRS[TILT_EXPR] = p => {
+            const n0 = p._GetNode(0), n1 = p._GetNode(1);
+            return () => {
+                const a = n0.ExpObject(), b = n1.ExpObject();
+                return a + ((((b - a) % 360) + 540) % 360 - 180) * 0.1;
+            };
+        };
+    } else console.warn("[mods] slope tilt expression not found; tilt fix skipped");
 
     // ---------------------------------------------------------------- per-tick hook
     let warned = false;
