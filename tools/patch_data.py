@@ -1,4 +1,5 @@
-"""One-off patch of data.json: evil star item frames + extra clones per clone pickup.
+"""One-off patch of data.json: evil star item frames, extra clones per clone pickup,
+and the water map's island on the "choose map" screen.
 
 Safe to re-run: each step checks whether it was already applied.
 Run from the repo root:  python3 tools/patch_data.py
@@ -74,6 +75,66 @@ for top in group[8]:
             subs.append(dup)
             added += 1
 print('added clone sub-events:', added)
+
+# --- 3. a 4th island on the "choose map" screen for the water map
+#        (tapping it sets the level select's "map" variable to 4; START then opens WATER_LAYOUT)
+WATER_LAYOUT = 'map_water'
+WATER_ICON = 'images/map_select_water.png'
+if any(L[0] == WATER_LAYOUT for L in d[5]):
+    if 'map_4' not in objs:
+        t = copy.deepcopy(d[3][objs.index('map_3')])
+        t[0] = 'map_4'
+        t[11] = new_sid()
+        t[7][0][6] = new_sid()
+        t[7][0][7] = [[WATER_ICON, os.path.getsize(WATER_ICON), 0, 0, 1407, 1019, False, 1, 0.5, 0.5, [], []]]
+        d[3].append(t)
+        objs.append('map_4')
+        print('added map_4 object')
+    map4 = objs.index('map_4')
+
+    ls = next(L for L in d[5] if L[0] == 'level_select')
+    layer = next(l for l in ls[9] if any(objs[i[1]] == 'map_3' for i in l[14]))
+    insts = layer[14]
+    if not any(i[1] == map4 for i in insts):
+        uids = [i[2] for L in d[5] for l in L[9] for i in l[14]] + [i[2] for L in d[5] for i in L[10]]
+        dup = copy.deepcopy(next(i for i in insts if objs[i[1]] == 'map_3'))
+        dup[1] = map4
+        dup[2] = max(uids + [d[21] - 1]) + 1
+        d[21] = dup[2] + 1
+        insts.insert(insts.index(next(i for i in insts if objs[i[1]] == 'map_3')) + 1, dup)
+        print('placed the water island')
+    # 4 islands in a row instead of 3, a bit smaller so they fit on screen
+    w, h, gap = 420, 420 * 362.9 / 501, 450
+    for k, name in enumerate(['map_1', 'map_2', 'map_3', 'map_4']):
+        inst = next(i for i in insts if objs[i[1]] == name)
+        inst[0][0], inst[0][3], inst[0][4] = 1920 + (k - 1.5) * gap, w, h
+    # the little "watch an ad" badge sits on the desert island's corner
+    badge = next(i for i in insts if objs[i[1]] == 'Sprite10')
+    k = w / 501
+    badge[0][0], badge[0][1] = 1920 + 0.5 * gap - 212.5 * k, 3080 - 143 * k
+    badge[0][3], badge[0][4] = 94.5 * k, 79.0 * k
+
+    sheet = next(s for s in d[6] if s[0] == 'level_select_logic')
+    evs = sheet[1]
+    MAP3_TAP, START_TAP, START_MAP3 = 730246033814372, 582788059066937, 850267157363197
+    if not any(e[0] == 0 and e[6] and e[6][0][-1] == [[4, map4]] for e in evs):
+        tap = copy.deepcopy(next(e for e in evs if e[0] == 0 and e[4] == MAP3_TAP))
+        tap[6][0][-1] = [[4, map4]]
+        tap[7] = [a for a in tap[7] if a[0] < 0 or objs[a[0]] != 'PokiSDK']  # no "watch an ad" for this one
+        for a in tap[7]:
+            if a[0] < 0 and refs[a[1]] == 'SetVar':
+                a[6][1] = [7, [42]]   # expression 42 is the constant 4
+        resid(tap)
+        evs.insert(evs.index(next(e for e in evs if e[0] == 0 and e[4] == MAP3_TAP)) + 1, tap)
+        print('added the water island tap event')
+    start = next(e for e in evs if e[0] == 0 and e[4] == START_TAP)
+    if not any(refs[a[1]] == 'GoToLayout' and a[6][0][1] == WATER_LAYOUT for s in start[8] for a in s[7]):
+        go = copy.deepcopy(next(s for s in start[8] if s[0] == 0 and s[4] == START_MAP3))
+        go[6][0][-1][2] = [7, [42]]
+        go[7][0][6][0][1] = WATER_LAYOUT
+        resid(go)
+        start[8].append(go)
+        print('START now opens', WATER_LAYOUT, 'when the water island is picked')
 
 out = json.dumps(doc, separators=(',', ':'), ensure_ascii=True)
 open('data.json', 'w', encoding='utf-8').write(out)

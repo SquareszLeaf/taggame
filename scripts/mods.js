@@ -9,6 +9,7 @@
 //  3. Evil star          - rare "imposter" star that slows whoever grabs it
 //  4. Better clones      - 4 clones that move randomly instead of in sync, plus more smoke
 //  5. Hidden "it" arrow  - the arrow over whoever is "it" fades out while they use clones or invisibility
+//  6. Custom maps        - fish platforms, teleporter pairs and start spots from the map editor
 {
     const C3 = self.C3;
     const T = self.TagModTables;
@@ -359,11 +360,89 @@
         return c;
     }
 
+    // The game only gives real players walking dust and the lean on slopes, so clones were easy
+    // to spot. Clones get the same: their own dust emitter at their feet while running on the
+    // ground, and leaning into the slope marker ("naklon") they're touching, eased like the game does.
+    const STEP_PARTS = { p1: "step_part", p2: "step_part2", p3: "step_part3", p4: "step_part4" };
+    const cloneDust = new Map();  // clone inst -> its dust emitter
+
+    // The game's "player jumped / started falling" events play the jump animation on every skin of
+    // that colour and put the jump puff on the first one (the real player), so a clone jumping made
+    // the real player react. Those actions now only touch the skin of whoever actually jumped.
+    function jumper(runtime, name) {
+        const picked = runtime.GetObjectClassByName(name).GetCurrentSol().GetInstances();
+        return picked.length === 1 ? picked[0] : null;
+    }
+    const origSetAnim = SpriteActs.SetAnim;
+    SpriteActs.SetAnim = function (animName, from) {
+        const name = T.JUMP_ACTS.get(currentSID(this._runtime));
+        if (name) {
+            const who = jumper(this._runtime, name);
+            const pin = this.GetInstance().GetBehaviorSdkInstanceFromCtor(C3.Behaviors.Pin);
+            if (who && pin && pin._pinInst !== who) return;
+        }
+        return origSetAnim.call(this, animName, from);
+    };
+    const origCreateObject = SysActs.CreateObject;
+    SysActs.CreateObject = function (objectClass, layer, x, y, ...rest) {
+        const name = T.JUMP_ACTS.get(currentSID(this._runtime));
+        if (name) {
+            const runtime = this._runtime;
+            const who = jumper(runtime, name);
+            const skin = who && skinOf(runtime, who, name);
+            const used = runtime.GetObjectClassByName(SKINS[name]).GetCurrentSol().GetInstances()[0];
+            if (skin && used && skin !== used) {  // shift the puff from the real player to the jumper
+                const a = used.GetWorldInfo(), b = skin.GetWorldInfo();
+                x += b.GetX() - a.GetX();
+                y += b.GetY() - a.GetY();
+            }
+        }
+        return origCreateObject.call(this, objectClass, layer, x, y, ...rest);
+    };
+
+    function cloneLooks(runtime, p, name) {
+        const skin = skinOf(runtime, p, name);
+        if (!skin) return;
+        let target = 0;
+        const slopes = runtime.GetObjectClassByName("naklon");
+        const collisions = runtime.GetCollisionEngine();
+        if (slopes) for (const s of slopes.GetInstances())
+            if (collisions.TestOverlap(p, s)) { target = s.GetWorldInfo().GetAngle(); break; }
+        const swi = skin.GetWorldInfo(), a = swi.GetAngle();
+        const next = a + Math.atan2(Math.sin(target - a), Math.cos(target - a)) * 0.1;
+        if (Math.abs(next - a) > 1e-4) { swi.SetAngle(next); swi.SetBboxChanged(); }
+
+        let dust = cloneDust.get(p);
+        if (!dust || dust.IsDestroyed()) {
+            const cls = runtime.GetObjectClassByName(STEP_PARTS[name]);
+            const real = cls && cls.GetInstances()[0];
+            if (!real) return;
+            dust = runtime.CreateInstance(cls, real.GetWorldInfo().GetLayer(), 0, 0);
+            cloneDust.set(p, dust);
+        }
+    }
+
+    // runs after the events each tick: the game's own events move every step_part emitter to the
+    // real player (or 0,0), so the clones' emitters get put back at their clone's feet here
+    function placeCloneDust(runtime) {
+        for (const [p, dust] of cloneDust) {
+            if (p.IsDestroyed() || dust.IsDestroyed()) continue;
+            const name = PLAYERS.find(n => p.GetObjectClass().GetName() === n);
+            const skin = name && skinOf(runtime, p, name);
+            const plat = playerState(p).plat;
+            const walking = skin && plat && plat._IsMoving() && plat._CheckIfStandingOnFloor();
+            const [x, y] = walking ? skin.GetImagePoint(1) : [0, 0];  // (0,0) is off the map, like the game does
+            const dwi = dust.GetWorldInfo();
+            if (dwi.GetX() !== x || dwi.GetY() !== y) { dwi.SetXY(x, y); dwi.SetBboxChanged(); }
+        }
+    }
+
     function tickClones(runtime, now) {
         for (const name of PLAYERS) {
             for (const p of runtime.GetObjectClassByName(name).GetInstances()) {
                 if (p.IsDestroyed() || getVar(p, "isDecoy") !== 1) continue;
                 const c = cloneStates.get(p) || newClone(runtime, p, name, now);
+                cloneLooks(runtime, p, name);
                 const r = ROLES[c.role];
                 const x = p.GetWorldInfo().GetX();
                 const moving = c.dir === 0 || c.dir === 1;
@@ -394,6 +473,11 @@
                     c.nextJump = now + rand(...r.jumpEvery);
                 }
             }
+        }
+        for (const [clone, dust] of cloneDust) {
+            if (!clone.IsDestroyed()) continue;
+            if (!dust.IsDestroyed()) runtime.DestroyInstance(dust);
+            cloneDust.delete(clone);
         }
         for (let i = pendingSmoke.length - 1; i >= 0; i--) {
             const s = pendingSmoke[i];
@@ -438,12 +522,146 @@
         runtime.UpdateRender();
     }
 
+    // ---------------------------------------------------------------- 6. custom maps
+    // maps/<layout>.json (written by the map editor, tools/map-editor.html) adds what the game's
+    // events don't know about:
+    //   starts    [[x,y] x4]             where p1..p4 start (otherwise the game's random spot)
+    //   teleports [{a:[x,y], b:[x,y]}]   teleporter pairs, one picked per round ([] = no teleporters)
+    //   fish      [{uid, path:[[x,y]..], speed, mode:"loop"|"pingpong", pause, flip}]
+    //             fish are jump-through platforms that swim along their path
+    // Open the game with ?testmap=map4 and whichever map you pick in the menu opens map4 instead.
+    const mapExtras = {};
+    const TEST_MAP = new URLSearchParams(location.search).get("testmap");
+    const nocache = { cache: "no-store" };
+    fetch("maps/index.json", nocache)
+        .then(r => (r.ok ? r.json() : []))
+        .then(names => Promise.all(names.map(n =>
+            fetch(`maps/${n}.json`, nocache).then(r => r.json()).then(j => { mapExtras[n] = j; }))))
+        .catch(() => {});
+
+    if (TEST_MAP) {
+        const origGoTo = SysActs.GoToLayout;
+        SysActs.GoToLayout = function (layout) {
+            if (layout && layout.GetName().startsWith("map")) {
+                const test = this._runtime.GetLayoutManager().GetLayoutByName(TEST_MAP);
+                if (test) layout = test;
+            }
+            return origGoTo.call(this, layout);
+        };
+        const showTag = () => {
+            const tag = document.createElement("div");
+            tag.textContent = `TEST MODE: every map opens ${TEST_MAP}`;
+            tag.style.cssText = "position:fixed;left:8px;top:8px;z-index:99999;padding:4px 10px;border-radius:6px;"
+                + "background:#000a;color:#ffd84a;font:600 13px system-ui,sans-serif;pointer-events:none";
+            document.body.appendChild(tag);
+        };
+        if (document.body) showTag(); else addEventListener("DOMContentLoaded", showTag);
+    }
+
+    let round = null;  // { extras, t0, pair, ticks, fish: [{inst, pts, cum, len, ...}] }
+
+    function setPos(inst, x, y) {
+        const wi = inst.GetWorldInfo();
+        if (wi.GetX() === x && wi.GetY() === y) return;
+        wi.SetXY(x, y);
+        wi.SetBboxChanged();
+    }
+
+    function startRound(runtime) {
+        const layout = runtime.GetMainRunningLayout();
+        const extras = layout && mapExtras[layout.GetName()];
+        round = null;
+        if (!extras) return;
+        const teleports = extras.teleports;
+        round = {
+            extras, ticks: 0, t0: runtime.GetGameTime(),
+            pair: teleports && teleports.length ? teleports[Math.floor(Math.random() * teleports.length)] : null,
+            fish: [],
+        };
+        for (const f of extras.fish || []) {
+            const inst = runtime.GetInstanceByUID(f.uid);
+            if (!inst || !f.path || f.path.length < 2) continue;
+            const pts = f.path.slice();
+            if (f.mode !== "pingpong") pts.push(pts[0]);  // loop back to the start
+            const cum = [0];
+            for (let i = 1; i < pts.length; i++)
+                cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+            const len = cum[cum.length - 1];
+            if (len <= 0) continue;
+            round.fish.push({ inst, pts, cum, len, speed: Math.max(1, f.speed || 250), pingpong: f.mode === "pingpong",
+                pause: Math.max(0, f.pause || 0), flip: f.flip !== false, w: Math.abs(inst.GetWorldInfo().GetWidth()) });
+        }
+        placeStarts(runtime);
+    }
+
+    function placeStarts(runtime) {
+        const starts = round.extras.starts;
+        if (!starts) return;
+        PLAYERS.forEach((name, i) => {
+            const cls = runtime.GetObjectClassByName(name);
+            const s = starts[i];
+            if (!cls || !s) return;
+            for (const p of cls.GetInstances())
+                if (!p.IsDestroyed() && getVar(p, "isDecoy") === 0) setPos(p, s[0], s[1]);
+        });
+    }
+
+    function pointAt(f, d) {
+        let i = 1;
+        while (i < f.cum.length - 1 && f.cum[i] < d) i++;
+        const a = f.pts[i - 1], b = f.pts[i];
+        const seg = f.cum[i] - f.cum[i - 1] || 1;
+        const t = Math.min(1, Math.max(0, (d - f.cum[i - 1]) / seg));
+        return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    }
+
+    // distance along the path at time t (seconds since the round started)
+    function fishDistance(f, t) {
+        const travel = f.len / f.speed;
+        if (!f.pingpong) {
+            const cycle = travel + f.pause;
+            const u = t % cycle;
+            return u < f.pause ? 0 : (u - f.pause) * f.speed;
+        }
+        const cycle = 2 * (travel + f.pause);
+        const u = t % cycle;
+        if (u < travel) return u * f.speed;
+        if (u < travel + f.pause) return f.len;
+        if (u < 2 * travel + f.pause) return f.len - (u - travel - f.pause) * f.speed;
+        return 0;
+    }
+
+    function tickMap(runtime, now) {
+        if (!round) return;
+        if (round.ticks++ < 3) placeStarts(runtime);  // in case the first tick's events moved them
+        if (round.extras.teleports) {
+            const t1 = runtime.GetObjectClassByName("teleport1"), t2 = runtime.GetObjectClassByName("teleport2");
+            const a = round.pair ? round.pair.a : [-5000, -5000], b = round.pair ? round.pair.b : [-5000, -5000];
+            for (const inst of (t1 ? t1.GetInstances() : [])) setPos(inst, a[0], a[1]);
+            for (const inst of (t2 ? t2.GetInstances() : [])) setPos(inst, b[0], b[1]);
+        }
+        const t = now - round.t0;
+        for (const f of round.fish) {
+            if (f.inst.IsDestroyed()) continue;
+            const [x, y] = pointAt(f, fishDistance(f, t));
+            const wi = f.inst.GetWorldInfo();
+            const dx = x - wi.GetX();
+            if (f.flip && Math.abs(dx) > 0.01) {
+                const w = dx < 0 ? -f.w : f.w;  // negative width = mirrored (the picture faces right)
+                if (wi.GetWidth() !== w) wi.SetWidth(w);
+            }
+            setPos(f.inst, x, y);
+        }
+        runtime.UpdateRender();
+    }
+
     // ---------------------------------------------------------------- per-tick hook
     let warned = false;
     function onPreTick(runtime) {
         const layout = runtime.GetMainRunningLayout();
         if (!layout || !layout.GetName().startsWith("map")) {
             pendingSmoke.length = 0;
+            cloneDust.clear();
             return;
         }
         try {
@@ -451,6 +669,7 @@
             tickEvil(runtime, now);
             tickClones(runtime, now);
             tickArrow(runtime);
+            tickMap(runtime, now);
         } catch (err) {
             if (!warned) console.error("[mods] tick error", err);
             warned = true;
@@ -462,5 +681,11 @@
         if (!runtime || !runtime.Dispatcher) return;
         clearInterval(poll);
         runtime.Dispatcher().addEventListener("pretick", () => onPreTick(runtime));
+        runtime.Dispatcher().addEventListener("tick2", () => {
+            try { if (cloneDust.size) placeCloneDust(runtime); } catch (err) { console.error("[mods] dust error", err); }
+        });
+        runtime.Dispatcher().addEventListener("afterlayoutstart", () => {
+            try { startRound(runtime); } catch (err) { console.error("[mods] map setup error", err); }
+        });
     }, 50);
 }

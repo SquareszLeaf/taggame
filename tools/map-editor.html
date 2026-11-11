@@ -1,0 +1,1499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tag Map Editor</title>
+<style>
+  :root {
+    --bg: #15171c; --panel: #1d2027; --panel2: #252932; --line: #333845;
+    --text: #e8eaf0; --dim: #9aa0ad; --accent: #5b8cff; --accent2: #3c6ef0; --ok: #3ecf8e; --warn: #ffb547; --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  button, input, select { font: inherit; color: inherit; }
+  button { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: #4a5160; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover { background: var(--accent2); }
+  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.danger:hover { border-color: var(--bad); color: var(--bad); }
+  input[type=number], input[type=text], select { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+  input[type=number] { width: 76px; }
+  .app { display: grid; grid-template-columns: 272px 1fr; height: 100vh; }
+
+  aside { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+  aside h1 { font-size: 16px; margin: 14px 14px 8px; }
+  .sec { padding: 10px 14px; border-top: 1px solid var(--line); }
+  .sec h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 8px; font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+  .row label { color: var(--dim); min-width: 52px; }
+  .tools { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .tools button { text-align: left; padding: 7px 9px; display: flex; gap: 8px; align-items: center; }
+  .tools kbd { margin-left: auto; font: 11px ui-monospace, monospace; color: var(--dim); }
+  .tools button.on kbd { color: #dbe5ff; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .hint { color: var(--dim); font-size: 12.5px; margin: 6px 0 0; }
+  .hint b { color: var(--text); font-weight: 600; }
+  .layers .row { margin: 3px 0; }
+  .layers label { min-width: 0; flex: 1; color: var(--text); }
+  .chk { display: flex; align-items: center; gap: 6px; color: var(--text); cursor: pointer; }
+  #decorPreview { width: 64px; height: 64px; background: var(--panel2); border-radius: 8px; }
+
+  main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  .bar .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
+  .spacer { flex: 1; }
+  #status { color: var(--dim); font-size: 13px; }
+  #status.ok { color: var(--ok); } #status.warn { color: var(--warn); } #status.bad { color: var(--bad); }
+  #stageWrap { flex: 1; position: relative; min-height: 0; background: #0d0f13; }
+  #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #coords { position: absolute; right: 10px; bottom: 8px; color: var(--dim); font: 12px ui-monospace, monospace; pointer-events: none;
+    background: #000a; padding: 2px 8px; border-radius: 6px; }
+  #help { position: absolute; left: 10px; bottom: 8px; color: #fffc; font-size: 12.5px; pointer-events: none;
+    background: #000b; padding: 4px 10px; border-radius: 6px; max-width: 70%; }
+  #help:empty { display: none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>Tag Map Editor</h1>
+    <div class="sec">
+      <div class="row">
+        <select id="mapSelect" style="flex:1"></select>
+        <button id="newMap">New map…</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2>Tools</h2>
+      <div class="tools" id="tools"></div>
+      <div id="toolOptions"></div>
+    </div>
+
+    <div class="sec" id="props"></div>
+
+    <div class="sec layers">
+      <h2>Layers</h2>
+      <div id="layerRows"></div>
+      <p class="hint">Players run on <b>game</b>. <b>bg2</b> is behind them, <b>game2</b> in front.</p>
+    </div>
+  </aside>
+
+  <main>
+    <div class="bar">
+      <button id="undo" title="Undo (Ctrl+Z)">↶ Undo</button>
+      <button id="redo" title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+      <span class="sep"></span>
+      <button id="snapBtn" class="on" title="Snap to a 10px grid (G)">Snap</button>
+      <button id="guideBtn" title="Show a real-size player at the mouse and how far they can jump (J)">Jump guide</button>
+      <button id="screenBtn" title="Show how much of the map fits on one screen, at the mouse (K)">Screen size</button>
+      <button id="playBtn" title="Preview the fish swimming (Space)">▶ Preview fish</button>
+      <button id="fitBtn" title="Fit the whole map (0)">Fit</button>
+      <span class="spacer"></span>
+      <span id="status"></span>
+      <button id="testBtn" title="Save, then open the game in test mode on this map">Test in game</button>
+      <button id="saveBtn" class="primary" title="Save (Ctrl+S)">Save</button>
+    </div>
+    <div id="stageWrap">
+      <canvas id="stage"></canvas>
+      <div id="help"></div>
+      <div id="coords"></div>
+    </div>
+  </main>
+</div>
+<input type="file" id="bgFile" accept="image/*" hidden>
+
+<script>
+"use strict";
+// ============================================================ constants
+const WORLD_LAYERS = ["bg", "bg2", "game", "game2"];
+const SYSTEM = new Set(["step_part", "step_part2", "step_part3", "step_part4", "red_skin", "blue_skin", "yellow_skin",
+  "green_skin", "center", "camera", "trumpline_partciles", "teleport1", "teleport2", "star_part",
+  "shield1", "shield2", "shield3", "shield4", "Sprite2"]);
+const PLAYER_COLORS = ["#ff4d5e", "#4d8bff", "#ffd23f", "#3ecf6a"];
+const PLAYER_SKINS = ["red_skin", "blue_skin", "yellow_skin", "green_skin"];
+// real in-game sizes (measured): hitbox 50x65 with its feet 25px below the player's position,
+// picture 90x90 centred 8px above it
+const PLAYER = { w: 50, h: 65, feet: 25, skin: 90, skinDy: -8 };
+// how much of the map one screen shows when the players are close together
+// (the camera zooms out as they spread apart, to about half size at 3200px apart)
+const SCREEN = { w: 1970, h: 1110 };
+const DEFAULT_SPAWN = [[2600, 1450], [2850, 1450], [3100, 1450], [3350, 1450]];
+const GRID = 10;
+const JUMP = { speed: 600, jump: 1000, gravity: 2000 };  // normal player movement (scripts/mods.js)
+const COLORS = { block: "#ff5d8f", jumpthru: "#ffcf7a", spawner: "#ffd84a", pad: "#4de0c0", fish: "#ff9a3c",
+  teleport: "#b46bff", decor: "#9aa0ad", path: "#ff9a3c" };
+
+const TOOLS = [
+  { id: "select", label: "Select", key: "V", color: "#e8eaf0",
+    help: "Click to select, drag to move. Drag empty space to pan. <b>Del</b> deletes, <b>Ctrl+D</b> duplicates, arrows nudge." },
+  { id: "block", label: "Ground", key: "B", color: COLORS.block,
+    help: "Drag to draw solid ground or a wall. Rotate it with the round handle to make a slope." },
+  { id: "jumpthru", label: "Jump-thru", key: "U", color: COLORS.jumpthru,
+    help: "Drag to draw a platform players can jump up through from below." },
+  { id: "spawner", label: "Powerup", key: "S", color: COLORS.spawner,
+    help: "Click to add a powerup spawn spot. Powerups appear at random spots." },
+  { id: "pad", label: "Jump pad", key: "P", color: COLORS.pad,
+    help: "Click to place a jump pad (the bottom sits where you click)." },
+  { id: "fish", label: "Fish", key: "F", color: COLORS.fish,
+    help: "Click to place a fish, then keep clicking to draw its swim path. <b>Enter</b> or <b>Esc</b> when done." },
+  { id: "teleport", label: "Teleport", key: "T", color: COLORS.teleport,
+    help: "Click for teleporter A, then click again for B. Add several pairs and the game picks one each round." },
+  { id: "decor", label: "Decor", key: "D", color: COLORS.decor,
+    help: "Click to place the decoration picked below. <b>[</b> and <b>]</b> change a selected decoration's picture." },
+];
+
+// ============================================================ dom helpers
+const $ = s => document.querySelector(s);
+const el = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "on") for (const [ev, fn] of Object.entries(v)) e.addEventListener(ev, fn);
+    else if (k === "style") e.style.cssText = v;
+    else if (k in e && k !== "list") e[k] = v;
+    else e.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null) e.append(k);
+  return e;
+};
+function setStatus(text, cls = "") { const s = $("#status"); s.textContent = text; s.className = cls; }
+
+// ============================================================ project data
+let P = null;            // data.json "project" array
+let types = [];          // per object type: { i, name, anims, tiled }
+const typeByName = {};
+let templates = {};      // type index -> an existing instance to copy
+let nextUid = 1;
+
+function frameFrom(a) {
+  return { url: a[0], ox: a[2], oy: a[3], w: a[4], h: a[5], rot: !!a[6],
+    originX: typeof a[8] === "number" ? a[8] : 0.5, originY: typeof a[9] === "number" ? a[9] : 0.5 };
+}
+// decoration objects offered in the Decor tool even before any are placed on a map
+const DECOR_SETS = ["water_decor"];
+
+async function loadProject() {
+  P = (await (await fetch("../data.json", { cache: "no-store" })).json()).project;
+  types = P[3].map((t, i) => ({
+    i, name: t[0],
+    anims: Array.isArray(t[7]) && t[7].length ? t[7].map(a => ({ name: a[0], frames: a[7].map(frameFrom) })) : null,
+    tiled: Array.isArray(t[6]) && typeof t[6][0] === "string" ? frameFrom(t[6]) : null,
+  }));
+  for (const k in typeByName) delete typeByName[k];
+  for (const t of types) typeByName[t.name] = t;
+  templates = {};
+  let maxUid = P[21] || 0;
+  for (const L of P[5]) {
+    for (const layer of L[9]) for (const inst of layer[14]) {
+      maxUid = Math.max(maxUid, inst[2] + 1);
+      if (WORLD_LAYERS.includes(layer[0]) && !(inst[1] in templates)) templates[inst[1]] = inst;
+    }
+    for (const inst of L[10]) maxUid = Math.max(maxUid, inst[2] + 1);
+  }
+  nextUid = maxUid;
+}
+const mapNames = () => P[5].map(L => L[0]).filter(n => /^map/.test(n));
+
+// ============================================================ images
+const sheets = new Map();   // url -> HTMLImageElement (or "loading")
+const frameCache = new Map();
+let bust = Date.now();
+function sheet(url) {
+  let s = sheets.get(url);
+  if (!s) {
+    s = new Image();
+    s.onload = () => { s.ready = true; redraw(); };
+    s.src = "../" + url + "?t=" + bust;
+    sheets.set(url, s);
+  }
+  return s.ready ? s : null;
+}
+function frameCanvas(f) {
+  const key = `${f.url}|${f.ox}|${f.oy}|${f.w}|${f.h}|${f.rot}`;
+  let c = frameCache.get(key);
+  if (c) return c;
+  const s = sheet(f.url);
+  if (!s) return null;
+  c = document.createElement("canvas");
+  c.width = f.w; c.height = f.h;
+  const x = c.getContext("2d");
+  if (f.rot) { x.rotate(-Math.PI / 2); x.translate(-f.h, 0); x.drawImage(s, f.ox, f.oy, f.h, f.w, 0, 0, f.h, f.w); }
+  else x.drawImage(s, f.ox, f.oy, f.w, f.h, 0, 0, f.w, f.h);
+  frameCache.set(key, c);
+  return c;
+}
+const patterns = new WeakMap();
+function patternFor(ctx, c) {
+  let p = patterns.get(c);
+  if (!p) { p = ctx.createPattern(c, "repeat"); patterns.set(c, p); }
+  return p;
+}
+function typeFrame(t, animName, frame) {
+  if (!t.anims) return t.tiled;
+  const a = t.anims.find(a => a.name === animName) || t.anims[0];
+  return a.frames[frame] || a.frames[0];
+}
+
+// ============================================================ the open map
+let cur = null;   // { name, L, layers: {bg: [...]}, extras, types: {block, top, op, bg} }
+let items = [];   // { inst, layer, kind, top?, parent?, off? }
+let sel = null;   // { t: "item", item } | { t: "start", i } | { t: "tp", i, end } | { t: "pt", fish, i }
+let dirty = false;
+let undoStack = [], redoStack = [];
+const hiddenLayers = new Set();
+const lockedLayers = new Set(["bg"]);
+
+function kindOf(name) {
+  if (SYSTEM.has(name)) return "system";
+  if (name === "spawner_items") return "spawner";
+  if (name === "batut") return "pad";
+  if (name === "fish") return "fish";
+  if (/^platformup_/.test(name)) return "top";
+  if (/^platform_.*_op$/.test(name)) return "jumpthru";
+  if (/^platform_/.test(name)) return "block";
+  if (/_bg$/.test(name)) return "bgimg";
+  return "decor";
+}
+
+async function openMap(name) {
+  const L = JSON.parse(JSON.stringify(P[5].find(L => L[0] === name)));
+  let extras = {};
+  try {
+    const r = await fetch(`../maps/${name}.json`, { cache: "no-store" });
+    if (r.ok) extras = await r.json();
+  } catch (e) { /* no extras yet */ }
+  extras.fish = extras.fish || [];
+  const layers = {};
+  for (const layer of L[9]) if (WORLD_LAYERS.includes(layer[0])) layers[layer[0]] = layer[14];
+  const t = n => (typeByName[n] ? typeByName[n].i : -1);
+  cur = {
+    name, L, layers, extras,
+    types: {
+      block: t("platform_" + name) >= 0 ? t("platform_" + name) : t("platform_map1"),
+      top: t("platformup_" + name) >= 0 ? t("platformup_" + name) : -1,
+      op: t(`platform_${name}_op`),
+      fish: t("fish"),
+      // only maps made with "New map" have an uploadable background (map1-3 use a tiled picture)
+      bg: t(name + "_bg") >= 0 && typeByName[name + "_bg"].anims ? t(name + "_bg") : -1,
+    },
+  };
+  sel = null; undoStack = []; redoStack = []; dirty = false;
+  rebuild();
+  fitView();
+  renderTools(); renderProps(); renderLayers();
+  setStatus(`Opened ${name}`);
+}
+
+// rebuild the item list from the layer arrays (after load / undo)
+function rebuild() {
+  items = [];
+  for (const ln of WORLD_LAYERS) for (const inst of cur.layers[ln] || []) {
+    const kind = kindOf(types[inst[1]].name);
+    if (kind === "system") continue;
+    items.push({ inst, layer: ln, kind });
+  }
+  // link grass-top strips to the block they sit on
+  const blocks = items.filter(i => i.kind === "block" || i.kind === "jumpthru");
+  for (const s of items.filter(i => i.kind === "top")) {
+    const g = geo(s.inst), stl = topLeft(g);
+    let best = null, bestD = 10;
+    for (const b of blocks) {
+      if (b.top) continue;
+      const bg = geo(b.inst);
+      if (Math.abs(angleDiff(bg.a, g.a)) > 0.02) continue;
+      const btl = topLeft(bg), d = Math.hypot(btl[0] - stl[0], btl[1] - stl[1]);
+      if (d < bestD) { best = b; bestD = d; }
+    }
+    if (best) {
+      const bg = geo(best.inst), btl = topLeft(bg);
+      const [dx, dy] = rot(stl[0] - btl[0], stl[1] - btl[1], -bg.a);
+      best.top = s; s.parent = best;
+      s.off = { dx, dy, dw: Math.abs(g.w) - Math.abs(bg.w) };
+    }
+  }
+  // link the game's invisible slope markers ("naklon") to the sloped block they sit on
+  for (const n of items.filter(i => types[i.inst[1]].name === "naklon")) {
+    const g = geo(n.inst);
+    const b = blocks.find(b => !b.slope && Math.abs(angleDiff(geo(b.inst).a, g.a)) < 0.02 &&
+      Math.hypot(...((e => [e[0] - g.x, e[1] - g.y])(slopeSpot(geo(b.inst))))) < 25);
+    if (b) { b.slope = n; n.parent = b; n.kind = "slope"; }
+  }
+  // fish need an extras entry (their path)
+  const fishByUid = new Map(cur.extras.fish.map(f => [f.uid, f]));
+  for (const f of items.filter(i => i.kind === "fish")) {
+    if (!fishByUid.has(f.inst[2])) {
+      const g = geo(f.inst);
+      const e = { uid: f.inst[2], path: [[g.x, g.y], [g.x + 400, g.y]], speed: 250, mode: "pingpong", pause: 0.5, flip: true };
+      cur.extras.fish.push(e); fishByUid.set(e.uid, e);
+    }
+    f.fish = fishByUid.get(f.inst[2]);
+  }
+  const uids = new Set(items.map(i => i.inst[2]));
+  cur.extras.fish = cur.extras.fish.filter(f => uids.has(f.uid));
+  if (sel && sel.t === "item") {
+    const uid = sel.item.inst[2];
+    const it = items.find(i => i.inst[2] === uid);
+    sel = it ? { t: "item", item: it } : null;
+  }
+  if (sel && sel.t === "pt") {
+    const it = items.find(i => i.inst[2] === sel.fish.inst[2]);
+    sel = it ? { t: "pt", fish: it, i: Math.min(sel.i, it.fish.path.length - 1) } : null;
+  }
+}
+
+// ============================================================ geometry
+const geo = inst => { const w = inst[0]; return { x: w[0], y: w[1], w: w[3], h: w[4], a: w[6], ox: w[8], oy: w[9] }; };
+function setGeo(inst, g) { const w = inst[0]; w[0] = g.x; w[1] = g.y; w[3] = g.w; w[4] = g.h; w[6] = g.a; }
+const rot = (x, y, a) => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)];
+const angleDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+// local box of an instance, relative to its origin, before rotation (mirroring ignored)
+function box(g) {
+  const aw = Math.abs(g.w), ah = Math.abs(g.h);
+  return { l: -g.ox * aw, t: -g.oy * ah, r: (1 - g.ox) * aw, b: (1 - g.oy) * ah };
+}
+function topLeft(g) { const b = box(g); const [x, y] = rot(b.l, b.t, g.a); return [g.x + x, g.y + y]; }
+function toLocal(g, wx, wy) { return rot(wx - g.x, wy - g.y, -g.a); }
+function hitItem(it, wx, wy, pad = 0) {
+  const g = geo(it.inst), b = box(g);
+  const [lx, ly] = toLocal(g, wx, wy);
+  const minW = 14 / view.z;  // keep thin things clickable
+  const cx = (b.l + b.r) / 2, cy = (b.t + b.b) / 2;
+  const hw = Math.max((b.r - b.l) / 2, minW) + pad, hh = Math.max((b.b - b.t) / 2, minW) + pad;
+  return Math.abs(lx - cx) <= hw && Math.abs(ly - cy) <= hh;
+}
+function syncTop(block) {
+  const s = block.top;
+  if (!s) return;
+  const b = geo(block.inst), sg = geo(s.inst);
+  const btl = topLeft(b);
+  const [dx, dy] = rot(s.off.dx, s.off.dy, b.a);
+  const w = Math.max(4, Math.abs(b.w) + s.off.dw);
+  const sb = box({ ...sg, w, a: b.a });
+  const [ox, oy] = rot(-sb.l, -sb.t, b.a);
+  setGeo(s.inst, { ...sg, x: btl[0] + dx + ox, y: btl[1] + dy + oy, w, a: b.a });
+}
+const snap = v => (snapOn ? Math.round(v / GRID) * GRID : v);
+
+// The game leans players over while they touch an invisible slope marker ("naklon"): it sits
+// along the top of a sloped platform, 15px above it (measured from map1). Maps made in this
+// editor get one per sloped ground/platform automatically; map1-3 keep their hand-placed ones.
+const SLOPE_MIN = 0.03, SLOPE_MAX = 1.3;  // radians (about 2 to 75 degrees)
+function slopeSpot(g) {
+  const tl = topLeft(g);
+  const [mx, my] = rot(Math.abs(g.w) / 2, -15, g.a);
+  return [tl[0] + mx, tl[1] + my];
+}
+function autoSlopes() { return cur && cur.types.bg >= 0 && typeByName.naklon; }
+function syncSlopes() {
+  if (!autoSlopes()) return;
+  let changed = false;
+  for (const b of items) {
+    if (b.kind !== "block" && b.kind !== "jumpthru") continue;
+    const g = geo(b.inst), tilt = Math.abs(angleDiff(g.a, 0));
+    const sloped = tilt >= SLOPE_MIN && tilt <= SLOPE_MAX;
+    if (!sloped) {
+      if (b.slope) { removeInst(b.slope.inst); b.slope = null; changed = true; }
+      continue;
+    }
+    if (!b.slope) {
+      const inst = newInstance(typeByName.naklon.i, 0, 0, 10, 35, "decor");
+      inst[0][8] = inst[0][9] = 0.5;
+      if (inst[5]) inst[5][0] = false;  // invisible in game
+      addToLayer("game", inst);
+      b.slope = { inst, layer: "game", kind: "slope", parent: b };
+      changed = true;
+    }
+    const [x, y] = slopeSpot(g);
+    setGeo(b.slope.inst, { ...geo(b.slope.inst), x, y, w: Math.abs(g.w), h: 35, a: g.a });
+  }
+  if (changed) rebuild();
+}
+
+// ============================================================ view
+const canvas = $("#stage");
+const ctx = canvas.getContext("2d");
+const view = { x: 0, y: 0, z: 0.2 };  // world coord at the canvas top-left, zoom
+let snapOn = true, guideOn = false, screenOn = false, playing = false, playT0 = 0;
+const showPlayers = true;
+let mouse = { x: 0, y: 0, wx: 0, wy: 0, in: false };
+
+function resize() {
+  const r = canvas.parentElement.getBoundingClientRect();
+  const dpr = devicePixelRatio || 1;
+  canvas.width = Math.round(r.width * dpr); canvas.height = Math.round(r.height * dpr);
+  redraw();
+}
+function fitView() {
+  if (!cur) return;
+  const r = canvas.getBoundingClientRect();
+  const W = cur.L[1], H = cur.L[2];
+  view.z = Math.min(r.width / (W + 400), r.height / (H + 400));
+  view.x = W / 2 - r.width / 2 / view.z;
+  view.y = H / 2 - r.height / 2 / view.z;
+  redraw();
+}
+const toWorld = (sx, sy) => [view.x + sx / view.z, view.y + sy / view.z];
+let frameReq = 0;
+function redraw() { if (!frameReq) frameReq = requestAnimationFrame(draw); }
+
+// ============================================================ drawing
+function drawInstance(it) {
+  const inst = it.inst, t = types[inst[1]], g = geo(inst), pp = inst[5] || [];
+  const visible = pp[0] !== false;
+  const aw = Math.abs(g.w), ah = Math.abs(g.h);
+  ctx.save();
+  ctx.translate(g.x, g.y); ctx.rotate(g.a);
+  ctx.scale(g.w < 0 ? -1 : 1, g.h < 0 ? -1 : 1);
+  const lx = -g.ox * aw, ly = -g.oy * ah;
+  const alpha = (inst[0][7] ? inst[0][7][3] : 1) * (visible ? 1 : 0.4);
+  ctx.globalAlpha = alpha;
+  if (it.kind === "spawner") {
+    const r = Math.max(aw, ah) / 2;
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#ffd84a33"; ctx.strokeStyle = COLORS.spawner; ctx.lineWidth = 3 / view.z;
+    ctx.beginPath(); ctx.arc(lx + aw / 2, ly + ah / 2, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = COLORS.spawner; ctx.font = `bold ${r * 1.3}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("★", lx + aw / 2, ly + ah / 2 + r * 0.05);
+  } else if (t.anims) {
+    const c = frameCanvas(typeFrame(t, pp[1], pp[2] | 0));
+    if (c) ctx.drawImage(c, lx, ly, aw, ah);
+    else { ctx.fillStyle = "#ffffff22"; ctx.fillRect(lx, ly, aw, ah); }
+  } else if (t.tiled) {
+    const c = frameCanvas(t.tiled);
+    if (c) {
+      const p = patternFor(ctx, c);
+      const sx = pp[6] || 1, sy = pp[7] || 1;
+      p.setTransform(new DOMMatrix().translateSelf(lx + (pp[4] || 0), ly + (pp[5] || 0)).scaleSelf(sx, sy));
+      ctx.fillStyle = p; ctx.fillRect(lx, ly, aw, ah);
+    }
+  } else { ctx.fillStyle = "#ffffff22"; ctx.fillRect(lx, ly, aw, ah); }
+  if (!visible && it.kind !== "spawner") {
+    ctx.globalAlpha = 0.8; ctx.setLineDash([6 / view.z, 4 / view.z]);
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 / view.z; ctx.strokeRect(lx, ly, aw, ah);
+  }
+  if (it.kind === "jumpthru") {  // little arrows so it reads as "jump up through"
+    ctx.globalAlpha = 0.9; ctx.strokeStyle = "#0008"; ctx.lineWidth = 2 / view.z; ctx.setLineDash([]);
+    for (let x = lx + 30; x < lx + aw - 10; x += 60) {
+      ctx.beginPath(); ctx.moveTo(x - 6, ly + ah / 2 + 4); ctx.lineTo(x, ly + ah / 2 - 4); ctx.lineTo(x + 6, ly + ah / 2 + 4); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function px(n) { return n / view.z; }  // screen pixels -> world units
+
+function marker(x, y, r, fill, label, stroke = "#000a") {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = fill; ctx.fill();
+  ctx.lineWidth = px(2); ctx.strokeStyle = stroke; ctx.stroke();
+  if (label) {
+    ctx.fillStyle = "#000"; ctx.font = `bold ${r * 0.95}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(label, x, y + r * 0.05);
+  }
+}
+
+function fishPathPoints(f) { return f.mode === "pingpong" ? f.path : [...f.path, f.path[0]]; }
+
+// same movement as scripts/mods.js
+function fishPos(f, t) {
+  const pts = fishPathPoints(f);
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const len = cum[cum.length - 1];
+  if (!len) return [pts[0][0], pts[0][1]];
+  const speed = Math.max(1, f.speed || 250), pause = Math.max(0, f.pause || 0), travel = len / speed;
+  let d;
+  if (f.mode !== "pingpong") { const u = t % (travel + pause); d = u < pause ? 0 : (u - pause) * speed; }
+  else {
+    const u = t % (2 * (travel + pause));
+    d = u < travel ? u * speed : u < travel + pause ? len : u < 2 * travel + pause ? len - (u - travel - pause) * speed : 0;
+  }
+  let i = 1;
+  while (i < cum.length - 1 && cum[i] < d) i++;
+  const a = pts[i - 1], b = pts[i], tt = Math.min(1, Math.max(0, (d - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1)));
+  return [a[0] + (b[0] - a[0]) * tt, a[1] + (b[1] - a[1]) * tt];
+}
+
+function draw() {
+  frameReq = 0;
+  const dpr = devicePixelRatio || 1;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#0d0f13"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (!cur) return;
+  ctx.setTransform(dpr * view.z, 0, 0, dpr * view.z, -view.x * dpr * view.z, -view.y * dpr * view.z);
+  const W = cur.L[1], H = cur.L[2];
+  const bgLayer = cur.L[9].find(l => l[0] === "bg");
+  const c = bgLayer ? bgLayer[4] : [57, 148, 247];
+  ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.fillRect(0, 0, W, H);
+
+  const t = playing ? (performance.now() - playT0) / 1000 : 0;
+  for (const it of items) {
+    if (hiddenLayers.has(it.layer) || it.kind === "slope") continue;  // slope markers are invisible helpers
+    if (playing && it.kind === "fish") {
+      const [x, y] = fishPos(it.fish, t), [x2] = fishPos(it.fish, t + 0.02);
+      const g = geo(it.inst), saved = it.inst[0].slice();
+      it.inst[0][0] = x; it.inst[0][1] = y;
+      if (it.fish.flip !== false && Math.abs(x2 - x) > 0.001) it.inst[0][3] = Math.abs(g.w) * (x2 < x ? -1 : 1);
+      drawInstance(it);
+      it.inst[0] = saved;
+    } else drawInstance(it);
+  }
+
+  // map edge
+  ctx.lineWidth = px(2); ctx.strokeStyle = "#fff6"; ctx.setLineDash([px(8), px(6)]);
+  ctx.strokeRect(0, 0, W, H); ctx.setLineDash([]);
+
+  // fish paths
+  for (const it of items) {
+    if (it.kind !== "fish" || hiddenLayers.has(it.layer)) continue;
+    const f = it.fish, isSel = sel && ((sel.t === "item" && sel.item === it) || (sel.t === "pt" && sel.fish === it));
+    const pts = fishPathPoints(f);
+    ctx.strokeStyle = isSel ? COLORS.path : COLORS.path + "88"; ctx.lineWidth = px(isSel ? 3 : 2);
+    ctx.setLineDash([px(10), px(6)]);
+    ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.stroke();
+    ctx.setLineDash([]);
+    if (isSel) f.path.forEach((p, i) => {
+      const on = sel.t === "pt" && sel.i === i;
+      marker(p[0], p[1], px(on ? 9 : 7), on ? "#fff" : COLORS.path, "");
+      ctx.fillStyle = "#fff"; ctx.font = `bold ${px(12)}px system-ui`; ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+      ctx.fillText(String(i + 1), p[0] + px(9), p[1] - px(6));
+    });
+  }
+
+  // teleporters
+  const tps = cur.extras.teleports || [];
+  tps.forEach((pair, i) => {
+    ctx.strokeStyle = COLORS.teleport + "aa"; ctx.lineWidth = px(2); ctx.setLineDash([px(6), px(6)]);
+    ctx.beginPath(); ctx.moveTo(...pair.a); ctx.lineTo(...pair.b); ctx.stroke(); ctx.setLineDash([]);
+    for (const end of ["a", "b"]) {
+      const on = sel && sel.t === "tp" && sel.i === i;
+      marker(pair[end][0], pair[end][1], 40, on ? "#d9b8ff" : COLORS.teleport, (end === "a" ? "A" : "B") + (i + 1), on ? "#fff" : "#000a");
+    }
+  });
+  if (pendingTp) marker(pendingTp[0], pendingTp[1], 40, COLORS.teleport + "88", "A?");
+
+  // players, at their real size: the start spots, or faded where the game drops them by default
+  if (cur.extras.starts) cur.extras.starts.forEach((s, i) => {
+    const on = sel && sel.t === "start" && sel.i === i;
+    drawPlayer(i, s[0], s[1], 1, "P" + (i + 1), on);
+  });
+  else if (showPlayers) DEFAULT_SPAWN.forEach((s, i) => drawPlayer(i, s[0], s[1], 0.5, i ? "" : "default start"));
+
+  // pending drag shapes
+  if (drag && drag.mode === "draw") {
+    const [x0, y0, x1, y1] = drag.rect;
+    ctx.fillStyle = (drag.tool === "jumpthru" ? COLORS.jumpthru : COLORS.block) + "66";
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = px(1.5);
+    ctx.fillRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0));
+    ctx.strokeRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0));
+  }
+
+  // selection
+  if (sel && sel.t === "item") drawSelection(sel.item);
+
+  // screen size / jump guide at the mouse
+  if (screenOn && mouse.in) drawScreenBox(mouse.wx, mouse.wy);
+  if (guideOn && mouse.in) drawJumpGuide(mouse.wx, mouse.wy);
+}
+
+function drawPlayer(i, x, y, alpha = 1, label = "", selected = false) {
+  const t = typeByName[PLAYER_SKINS[i]];
+  const a = t && t.anims && (t.anims.find(a => a.name === "idle") || t.anims[0]);
+  const c = a && frameCanvas(a.frames[0]);
+  const s = PLAYER.skin, cy = y + PLAYER.skinDy;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if (selected) {
+    ctx.beginPath(); ctx.arc(x, cy, s * 0.6, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff33"; ctx.fill(); ctx.lineWidth = px(2); ctx.strokeStyle = "#fff"; ctx.stroke();
+  }
+  if (c) ctx.drawImage(c, x - s / 2, cy - s / 2, s, s);
+  else marker(x, cy, s / 2, PLAYER_COLORS[i], "");
+  if (label) {
+    const fs = Math.max(px(11), 16);
+    ctx.font = `bold ${fs}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.lineWidth = fs / 4; ctx.strokeStyle = "#000c"; ctx.fillStyle = PLAYER_COLORS[i];
+    ctx.strokeText(label, x, cy - s / 2 - 2); ctx.fillText(label, x, cy - s / 2 - 2);
+  }
+  ctx.restore();
+}
+
+function drawScreenBox(x, y) {
+  const w = SCREEN.w, h = SCREEN.h;
+  ctx.save();
+  ctx.fillStyle = "#ffffff10"; ctx.fillRect(x - w / 2, y - h / 2, w, h);
+  ctx.strokeStyle = "#fff"; ctx.lineWidth = px(2); ctx.setLineDash([px(10), px(6)]);
+  ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+  ctx.setLineDash([]);
+  const fs = px(13);
+  ctx.font = `bold ${fs}px system-ui`; ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.lineWidth = fs / 4; ctx.strokeStyle = "#000c"; ctx.fillStyle = "#fff";
+  const text = "one screen (zoomed in)";
+  ctx.strokeText(text, x - w / 2 + px(8), y - h / 2 + px(6)); ctx.fillText(text, x - w / 2 + px(8), y - h / 2 + px(6));
+  ctx.restore();
+}
+
+function handlesOf(it) {
+  const g = geo(it.inst), b = box(g);
+  const pts = {
+    nw: [b.l, b.t], n: [(b.l + b.r) / 2, b.t], ne: [b.r, b.t], e: [b.r, (b.t + b.b) / 2],
+    se: [b.r, b.b], s: [(b.l + b.r) / 2, b.b], sw: [b.l, b.b], w: [b.l, (b.t + b.b) / 2],
+    rot: [(b.l + b.r) / 2, b.t - px(28)],
+  };
+  if (it.kind === "spawner") return { };
+  const out = {};
+  for (const [k, [lx, ly]] of Object.entries(pts)) { const [x, y] = rot(lx, ly, g.a); out[k] = [g.x + x, g.y + y]; }
+  return out;
+}
+
+function drawSelection(it) {
+  const g = geo(it.inst), b = box(g);
+  ctx.save();
+  ctx.translate(g.x, g.y); ctx.rotate(g.a);
+  ctx.strokeStyle = "#5b8cff"; ctx.lineWidth = px(2);
+  ctx.strokeRect(b.l, b.t, b.r - b.l, b.b - b.t);
+  if (it.kind !== "spawner") {
+    ctx.beginPath(); ctx.moveTo((b.l + b.r) / 2, b.t); ctx.lineTo((b.l + b.r) / 2, b.t - px(28)); ctx.stroke();
+  }
+  ctx.restore();
+  for (const [k, [x, y]] of Object.entries(handlesOf(it))) {
+    ctx.beginPath();
+    if (k === "rot") ctx.arc(x, y, px(6), 0, Math.PI * 2);
+    else ctx.rect(x - px(5), y - px(5), px(10), px(10));
+    ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = px(1.5); ctx.strokeStyle = "#5b8cff"; ctx.stroke();
+  }
+}
+
+function drawJumpGuide(x, y) {
+  // a real-size player standing at the mouse, and the arc of a normal jump while running
+  const size = PLAYER.h;
+  drawPlayer(0, x, y - PLAYER.feet, 0.85);
+  ctx.strokeStyle = "#fff"; ctx.lineWidth = px(1.5); ctx.setLineDash([px(4), px(4)]);
+  const air = 2 * JUMP.jump / JUMP.gravity;
+  const apex = JUMP.jump * JUMP.jump / (2 * JUMP.gravity);
+  for (const dir of [-1, 1]) {
+    ctx.beginPath();
+    for (let i = 0; i <= 40; i++) {
+      const tt = (i / 40) * air * 1.25;
+      const px_ = x + dir * JUMP.speed * tt, py = y - size / 2 - (JUMP.jump * tt - JUMP.gravity * tt * tt / 2);
+      i ? ctx.lineTo(px_, py) : ctx.moveTo(px_, py);
+    }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.strokeStyle = "#ffd84a"; ctx.beginPath(); ctx.moveTo(x, y - size); ctx.lineTo(x, y - size - apex); ctx.stroke();
+  ctx.fillStyle = "#ffd84a"; ctx.font = `bold ${px(13)}px system-ui`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText(`jump ≈ ${Math.round(apex)}px up`, x + px(8), y - size - apex);
+}
+
+// ============================================================ editing helpers
+function snapshot() {
+  return JSON.stringify({ layers: cur.layers, extras: cur.extras, w: cur.L[1], h: cur.L[2], bg: (cur.L[9].find(l => l[0] === "bg") || [])[4] });
+}
+let pendingBefore = null;
+function beginChange() { if (!pendingBefore) pendingBefore = snapshot(); }
+function endChange() {
+  if (!pendingBefore) return;
+  syncSlopes();
+  const now = snapshot();
+  if (now !== pendingBefore) {
+    undoStack.push(pendingBefore);
+    if (undoStack.length > 200) undoStack.shift();
+    redoStack = [];
+    markDirty();
+  }
+  pendingBefore = null;
+}
+function change(fn) { beginChange(); fn(); endChange(); renderProps(); redraw(); }
+function restore(s) {
+  const o = JSON.parse(s);
+  for (const ln of Object.keys(o.layers)) {
+    cur.layers[ln] = o.layers[ln];
+    const layer = cur.L[9].find(l => l[0] === ln);
+    layer[14] = o.layers[ln];
+  }
+  cur.extras = o.extras; cur.L[1] = o.w; cur.L[2] = o.h;
+  const bg = cur.L[9].find(l => l[0] === "bg");
+  if (bg && o.bg) bg[4] = o.bg;
+  rebuild(); renderProps(); redraw(); markDirty();
+}
+function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); }
+function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); }
+function markDirty() {
+  dirty = true;
+  $("#undo").disabled = !undoStack.length; $("#redo").disabled = !redoStack.length;
+  setStatus("Unsaved changes", "warn");
+}
+
+function newInstance(ti, x, y, w, h, kindHint) {
+  let tpl = templates[ti];
+  if (!tpl) {  // nothing of this type placed anywhere yet: borrow a similar object's setup
+    const fallback = { block: "platform_map1", top: "platformup_map1", jumpthru: "platform_map3_op", fish: "platform_map3_op" }[kindHint];
+    tpl = fallback && templates[typeByName[fallback].i];
+  }
+  let inst;
+  if (tpl) inst = JSON.parse(JSON.stringify(tpl));
+  else inst = [[0, 0, 0, 10, 10, 0, 0, [1, 1, 1, 1], 0.5, 0.5, 0, 0, [], null, null, null, ["", ""]], ti, 0, [], [], [true, "Animation 1", 0, true]];
+  inst[1] = ti; inst[2] = nextUid++;
+  inst[0][0] = x; inst[0][1] = y; inst[0][3] = w; inst[0][4] = h; inst[0][6] = 0;
+  if (inst[5] && typeof inst[5][1] === "string" && types[ti].anims && !types[ti].anims.some(a => a.name === inst[5][1])) {
+    inst[5][1] = types[ti].anims[0].name; inst[5][2] = 0;
+  }
+  return inst;
+}
+function addToLayer(ln, inst, after) {
+  const arr = cur.layers[ln];
+  const i = after ? arr.indexOf(after) : -1;
+  if (i >= 0) arr.splice(i + 1, 0, inst); else arr.push(inst);
+}
+function removeInst(inst) {
+  for (const ln of WORLD_LAYERS) {
+    const arr = cur.layers[ln] || [];
+    const i = arr.indexOf(inst);
+    if (i >= 0) { arr.splice(i, 1); return; }
+  }
+}
+function defaultTopHeight(ti) {
+  for (const it of items) if (it.inst[1] === ti) return Math.abs(it.inst[0][4]);
+  const t = types[ti].tiled;
+  return t ? Math.round(t.h * 0.33) : 22;
+}
+function addTop(block) {
+  if (cur.types.top < 0) return;
+  const g = geo(block.inst);
+  const s = newInstance(cur.types.top, 0, 0, Math.abs(g.w), defaultTopHeight(cur.types.top), "top");
+  s[0][8] = 0; s[0][9] = 0;
+  addToLayer(block.layer, s, block.inst);
+  const item = { inst: s, layer: block.layer, kind: "top", parent: block, off: { dx: 0, dy: 0, dw: 0 } };
+  block.top = item;
+  items.splice(items.indexOf(block) + 1, 0, item);
+  syncTop(block);
+}
+function deleteItem(it) {
+  if (it.top) removeInst(it.top.inst);
+  if (it.slope) removeInst(it.slope.inst);
+  removeInst(it.inst);
+  if (it.kind === "fish") cur.extras.fish = cur.extras.fish.filter(f => f.uid !== it.inst[2]);
+  rebuild();
+}
+function duplicateItem(it) {
+  const copy = JSON.parse(JSON.stringify(it.inst));
+  copy[2] = nextUid++;
+  const off = snapOn ? GRID * 4 : 40;
+  copy[0][0] += off; copy[0][1] += off;
+  addToLayer(it.layer, copy, it.top ? it.top.inst : it.inst);
+  if (it.top) {
+    const t = JSON.parse(JSON.stringify(it.top.inst));
+    t[2] = nextUid++; t[0][0] += off; t[0][1] += off;
+    addToLayer(it.layer, t, copy);
+  }
+  if (it.kind === "fish") {
+    const f = JSON.parse(JSON.stringify(it.fish));
+    f.uid = copy[2]; f.path = f.path.map(([x, y]) => [x + off, y + off]);
+    cur.extras.fish.push(f);
+  }
+  rebuild();
+  return items.find(i => i.inst === copy);
+}
+function moveItem(it, dx, dy) {
+  const w = it.inst[0];
+  w[0] += dx; w[1] += dy;
+  if (it.top) syncTop(it);
+  if (it.kind === "fish") for (const p of it.fish.path) { p[0] += dx; p[1] += dy; }
+}
+
+// ============================================================ mouse
+let tool = "select";
+let drag = null;
+let pendingTp = null;
+let spaceDown = false;
+
+function pickAt(wx, wy) {
+  const r = px(12);
+  // markers first (they sit on top)
+  if (sel && (sel.t === "item" || sel.t === "pt")) {
+    const fish = sel.t === "item" ? sel.item : sel.fish;
+    if (fish.kind === "fish") for (let i = fish.fish.path.length - 1; i >= 0; i--) {
+      const p = fish.fish.path[i];
+      if (Math.hypot(p[0] - wx, p[1] - wy) <= r) return { t: "pt", fish, i };
+    }
+  }
+  if (cur.extras.starts) for (let i = 3; i >= 0; i--) {
+    const s = cur.extras.starts[i];
+    if (s && Math.hypot(s[0] - wx, s[1] - wy) <= 45) return { t: "start", i };
+  }
+  const tps = cur.extras.teleports || [];
+  for (let i = tps.length - 1; i >= 0; i--) for (const end of ["b", "a"])
+    if (Math.hypot(tps[i][end][0] - wx, tps[i][end][1] - wy) <= 40) return { t: "tp", i, end };
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (hiddenLayers.has(it.layer) || lockedLayers.has(it.layer) || it.kind === "slope") continue;
+    if (hitItem(it, wx, wy)) return { t: "item", item: it.parent || it };
+  }
+  return null;
+}
+function handleAt(wx, wy) {
+  if (!sel || sel.t !== "item") return null;
+  for (const [k, [x, y]] of Object.entries(handlesOf(sel.item)))
+    if (Math.hypot(x - wx, y - wy) <= px(9)) return k;
+  return null;
+}
+
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+canvas.addEventListener("pointerdown", e => {
+  if (!cur) return;
+  canvas.setPointerCapture(e.pointerId);
+  const r = canvas.getBoundingClientRect();
+  const sx = e.clientX - r.left, sy = e.clientY - r.top;
+  const [wx, wy] = toWorld(sx, sy);
+  if (e.button === 1 || e.button === 2 || spaceDown) { drag = { mode: "pan", sx, sy, vx: view.x, vy: view.y }; return; }
+
+  // fish path: alt-click a point to delete it, click elsewhere to add one
+  if (tool === "fish" && sel && (sel.t === "item" || sel.t === "pt")) {
+    const fish = sel.t === "item" ? sel.item : sel.fish;
+    if (fish.kind === "fish") {
+      const hit = pickAt(wx, wy);
+      if (hit && hit.t === "pt") {
+        if (e.altKey) { deletePathPoint(hit); return; }
+        sel = hit; beginChange(); drag = { mode: "move", wx, wy, last: [wx, wy] }; renderProps(); redraw(); return;
+      }
+      change(() => { fish.fish.path.push([snap(wx), snap(wy)]); sel = { t: "pt", fish, i: fish.fish.path.length - 1 }; });
+      return;
+    }
+  }
+
+  if (tool === "select") {
+    const h = handleAt(wx, wy);
+    if (h) {
+      beginChange();
+      const g = geo(sel.item.inst);
+      drag = { mode: h === "rot" ? "rotate" : "resize", handle: h, g0: g, b0: box(g) };
+      return;
+    }
+    const hit = pickAt(wx, wy);
+    if (hit && hit.t === "pt" && e.altKey) { deletePathPoint(hit); return; }
+    sel = hit;
+    renderProps();
+    if (hit) { beginChange(); drag = { mode: "move", wx, wy, last: [wx, wy], moved: false }; }
+    else drag = { mode: "pan", sx, sy, vx: view.x, vy: view.y };
+    redraw();
+    return;
+  }
+  if (tool === "block" || tool === "jumpthru") {
+    drag = { mode: "draw", tool, rect: [snap(wx), snap(wy), snap(wx), snap(wy)] };
+    return;
+  }
+  if (tool === "spawner") {
+    change(() => {
+      const inst = newInstance(typeByName.spawner_items.i, snap(wx), snap(wy), 50, 50, "spawner");
+      addToLayer("game2", inst); rebuild();
+      sel = { t: "item", item: items.find(i => i.inst === inst) };
+    });
+    return;
+  }
+  if (tool === "pad") {
+    change(() => {
+      const inst = newInstance(typeByName.batut.i, snap(wx), snap(wy), 108, 56, "pad");
+      inst[0][8] = 0.5; inst[0][9] = 1;
+      addToLayer("game", inst); rebuild();
+      sel = { t: "item", item: items.find(i => i.inst === inst) };
+    });
+    return;
+  }
+  if (tool === "fish") {
+    if (cur.types.fish < 0) return setStatus("No fish object yet — make a new map first", "bad");
+    change(() => {
+      const x = snap(wx), y = snap(wy);
+      const inst = newInstance(cur.types.fish, x, y, 260, 104, "fish");
+      addToLayer("game2", inst);
+      cur.extras.fish.push({ uid: inst[2], path: [[x, y]], speed: 250, mode: "pingpong", pause: 0.5, flip: true });
+      rebuild();
+      const it = items.find(i => i.inst === inst);
+      sel = { t: "pt", fish: it, i: 0 };
+    });
+    setHelp("Now click to add points to the fish's path. <b>Enter</b> or <b>Esc</b> when done. <b>Alt+click</b> a point to remove it.");
+    return;
+  }
+  if (tool === "teleport") {
+    if (!pendingTp) { pendingTp = [snap(wx), snap(wy)]; redraw(); return; }
+    change(() => {
+      cur.extras.teleports = cur.extras.teleports || [];
+      cur.extras.teleports.push({ a: pendingTp, b: [snap(wx), snap(wy)] });
+      sel = { t: "tp", i: cur.extras.teleports.length - 1, end: "b" };
+    });
+    pendingTp = null;
+    renderProps();
+    return;
+  }
+  if (tool === "decor") {
+    const d = decorChoice();
+    if (!d) return;
+    change(() => {
+      const f = typeFrame(types[d.ti], d.anim, d.frame);
+      const tpl = templates[d.ti];
+      let w = f.w, h = f.h;
+      if (tpl && tpl[5] && tpl[5][1] === d.anim && (tpl[5][2] | 0) === d.frame) { w = Math.abs(tpl[0][3]); h = Math.abs(tpl[0][4]); }
+      const inst = newInstance(d.ti, snap(wx), snap(wy), w, h, "decor");
+      if (inst[5] && typeof inst[5][1] === "string") { inst[5][1] = d.anim; inst[5][2] = d.frame; inst[5][0] = true; }
+      inst[0][8] = f.originX; inst[0][9] = f.originY;  // e.g. water decorations sit on their bottom edge
+      addToLayer(d.layer, inst); rebuild();
+      sel = { t: "item", item: items.find(i => i.inst === inst) };
+    });
+  }
+});
+
+function deletePathPoint(hit) {
+  const path = hit.fish.fish.path;
+  if (path.length <= 1) return;
+  change(() => {
+    path.splice(hit.i, 1);
+    if (hit.i === 0) { hit.fish.inst[0][0] = path[0][0]; hit.fish.inst[0][1] = path[0][1]; }
+    sel = { t: "item", item: hit.fish };
+  });
+}
+
+canvas.addEventListener("pointermove", e => {
+  const r = canvas.getBoundingClientRect();
+  const sx = e.clientX - r.left, sy = e.clientY - r.top;
+  const [wx, wy] = toWorld(sx, sy);
+  mouse = { x: sx, y: sy, wx, wy, in: true };
+  $("#coords").textContent = `${Math.round(wx)}, ${Math.round(wy)}   ${Math.round(view.z * 100)}%`;
+  if (guideOn) redraw();
+  if (!drag) {
+    const h = tool === "select" && handleAt(wx, wy);
+    canvas.style.cursor = spaceDown ? "grab" : h === "rot" ? "alias" : h ? "nwse-resize" : tool === "select" ? "default" : "crosshair";
+    return;
+  }
+  if (drag.mode === "pan") {
+    view.x = drag.vx - (sx - drag.sx) / view.z; view.y = drag.vy - (sy - drag.sy) / view.z;
+    redraw(); return;
+  }
+  if (drag.mode === "draw") { drag.rect[2] = snap(wx); drag.rect[3] = snap(wy); redraw(); return; }
+  if (drag.mode === "move") {
+    // move so the object's position lands on a grid point
+    if (!drag.start) drag.start = { ax: anchorOf(sel)[0], ay: anchorOf(sel)[1] };
+    const nx = snap(drag.start.ax + (wx - drag.wx)), ny = snap(drag.start.ay + (wy - drag.wy));
+    const [cx, cy] = anchorOf(sel);
+    moveSel(nx - cx, ny - cy);
+    renderPropsLight(); redraw(); return;
+  }
+  if (drag.mode === "rotate") {
+    const g = geo(sel.item.inst);
+    let a = Math.atan2(wy - g.y, wx - g.x) + Math.PI / 2;
+    const step = e.shiftKey ? Math.PI / 180 : Math.PI / 36;  // 5 degree steps (shift: free-ish)
+    a = Math.round(a / step) * step;
+    setGeo(sel.item.inst, { ...g, a });
+    if (sel.item.top) syncTop(sel.item);
+    renderPropsLight(); redraw(); return;
+  }
+  if (drag.mode === "resize") {
+    const g0 = drag.g0, b0 = drag.b0;
+    let [lx, ly] = toLocal(g0, wx, wy);
+    if (snapOn && Math.abs(g0.a) < 1e-6) { lx = snap(g0.x + lx) - g0.x; ly = snap(g0.y + ly) - g0.y; }
+    let { l, t, r: rr, b } = b0;
+    const hk = drag.handle;
+    if (hk.includes("w")) l = Math.min(lx, rr - 4);
+    if (hk.includes("e")) rr = Math.max(lx, l + 4);
+    if (hk.includes("n")) t = Math.min(ly, b - 4);
+    if (hk.includes("s")) b = Math.max(ly, t + 4);
+    let nw = rr - l, nh = b - t;
+    if (e.shiftKey && hk.length === 2) {  // keep the shape
+      const k = Math.max(nw / (b0.r - b0.l), nh / (b0.b - b0.t));
+      nw = (b0.r - b0.l) * k; nh = (b0.b - b0.t) * k;
+      if (hk.includes("w")) l = rr - nw; else rr = l + nw;
+      if (hk.includes("n")) t = b - nh; else b = t + nh;
+    }
+    const [ox, oy] = rot(l + g0.ox * nw, t + g0.oy * nh, g0.a);
+    setGeo(sel.item.inst, { ...g0, x: g0.x + ox, y: g0.y + oy, w: nw * Math.sign(g0.w || 1), h: nh * Math.sign(g0.h || 1) });
+    if (sel.item.top) syncTop(sel.item);
+    if (sel.item.kind === "fish") { sel.item.fish.path[0] = [sel.item.inst[0][0], sel.item.inst[0][1]]; }
+    renderPropsLight(); redraw();
+  }
+});
+canvas.addEventListener("pointerleave", () => { mouse.in = false; redraw(); });
+
+function anchorOf(s) {
+  if (s.t === "item") return [s.item.inst[0][0], s.item.inst[0][1]];
+  if (s.t === "start") return cur.extras.starts[s.i];
+  if (s.t === "tp") return cur.extras.teleports[s.i][s.end];
+  if (s.t === "pt") return s.fish.fish.path[s.i];
+}
+function moveSel(dx, dy) {
+  if (!dx && !dy) return;
+  if (sel.t === "item") moveItem(sel.item, dx, dy);
+  else if (sel.t === "pt") {
+    const p = sel.fish.fish.path[sel.i];
+    p[0] += dx; p[1] += dy;
+    if (sel.i === 0) { sel.fish.inst[0][0] = p[0]; sel.fish.inst[0][1] = p[1]; }
+  } else { const p = anchorOf(sel); p[0] += dx; p[1] += dy; }
+}
+
+canvas.addEventListener("pointerup", () => {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  if (d.mode === "draw") {
+    let [x0, y0, x1, y1] = d.rect;
+    if (Math.abs(x1 - x0) < 8 || Math.abs(y1 - y0) < 8) {  // just a click: default size
+      const w = d.tool === "jumpthru" ? 500 : 400, h = d.tool === "jumpthru" ? 33 : 60;
+      x0 = x0 - w / 2; x1 = x0 + w; y1 = y0 + h;
+    }
+    const x = Math.min(x0, x1), y = Math.min(y0, y1), w = Math.abs(x1 - x0), h = Math.abs(y1 - y0);
+    const ti = d.tool === "jumpthru" ? cur.types.op : cur.types.block;
+    change(() => {
+      const inst = newInstance(ti, x + w / 2, y + h / 2, w, h, d.tool === "jumpthru" ? "jumpthru" : "block");
+      inst[0][8] = 0.5; inst[0][9] = 0.5;
+      addToLayer("game2", inst); rebuild();
+      const it = items.find(i => i.inst === inst);
+      if (d.tool === "block" && $("#withTop") && $("#withTop").checked) addTop(it);
+      sel = { t: "item", item: it };
+    });
+    return;
+  }
+  if (d.mode !== "pan") { endChange(); renderProps(); redraw(); }
+});
+
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const sx = e.clientX - r.left, sy = e.clientY - r.top;
+  // pinch (ctrl) or a mouse wheel zooms; two-finger trackpad scrolling pans
+  const wheel = e.deltaMode === 1 || (e.deltaX === 0 && Math.abs(e.deltaY) >= 50 && Number.isInteger(e.deltaY));
+  if (e.ctrlKey || e.metaKey || (wheel && !e.shiftKey)) {
+    const [wx, wy] = toWorld(sx, sy);
+    const k = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015));
+    view.z = Math.min(4, Math.max(0.03, view.z * k));
+    view.x = wx - sx / view.z; view.y = wy - sy / view.z;
+  } else {  // trackpad two-finger scroll pans
+    view.x += (e.shiftKey ? e.deltaY : e.deltaX) / view.z;
+    view.y += (e.shiftKey ? 0 : e.deltaY) / view.z;
+  }
+  $("#coords").textContent = `${Math.round(mouse.wx)}, ${Math.round(mouse.wy)}   ${Math.round(view.z * 100)}%`;
+  redraw();
+}, { passive: false });
+
+// ============================================================ keyboard
+addEventListener("keydown", e => {
+  if (!cur) return;
+  const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && document.activeElement.type !== "checkbox";
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save(); return; }
+  if (typing) return;
+  if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
+  if (mod && e.key.toLowerCase() === "d") {
+    e.preventDefault();
+    if (sel && sel.t === "item") change(() => { sel = { t: "item", item: duplicateItem(sel.item) }; });
+    return;
+  }
+  if (e.key === " ") { e.preventDefault(); if (!spaceDown) { spaceDown = true; canvas.style.cursor = "grab"; } return; }
+  if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSel(); return; }
+  if (e.key === "Escape" || e.key === "Enter") {
+    if (pendingTp) { pendingTp = null; redraw(); }
+    if (tool === "fish" && sel && sel.t === "pt") { sel = { t: "item", item: sel.fish }; setTool("select"); }
+    else if (e.key === "Escape") { sel = null; renderProps(); redraw(); }
+    return;
+  }
+  const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  if (arrows[e.key] && sel) {
+    e.preventDefault();
+    const n = e.shiftKey ? 50 : snapOn ? GRID : 1;
+    beginChange(); moveSel(arrows[e.key][0] * n, arrows[e.key][1] * n); endChange();
+    renderProps(); redraw(); return;
+  }
+  if ((e.key === "[" || e.key === "]") && sel && sel.t === "item") { cycleFrame(sel.item, e.key === "]" ? 1 : -1); return; }
+  const k = e.key.toUpperCase();
+  const t = TOOLS.find(t => t.key === k);
+  if (t && !mod) { setTool(t.id); return; }
+  if (k === "G") toggleSnap();
+  if (k === "J") toggleGuide();
+  if (k === "K") toggleScreen();
+  if (k === "0") fitView();
+});
+addEventListener("keyup", e => { if (e.key === " ") { spaceDown = false; canvas.style.cursor = ""; } });
+
+function deleteSel() {
+  if (!sel) return;
+  if (sel.t === "item") change(() => { deleteItem(sel.item); sel = null; });
+  else if (sel.t === "tp") change(() => { cur.extras.teleports.splice(sel.i, 1); sel = null; });
+  else if (sel.t === "pt") deletePathPoint(sel);
+}
+
+function cycleFrame(it, dir) {
+  const t = types[it.inst[1]], pp = it.inst[5];
+  if (!t.anims || !pp || typeof pp[1] !== "string") return;
+  const a = t.anims.find(a => a.name === pp[1]) || t.anims[0];
+  change(() => {
+    const f = ((pp[2] | 0) + dir + a.frames.length) % a.frames.length;
+    const old = a.frames[pp[2] | 0] || a.frames[0], nf = a.frames[f];
+    pp[2] = f;
+    // keep the bottom (or wherever the origin is) in place and roughly the same scale
+    it.inst[0][8] = nf.originX; it.inst[0][9] = nf.originY;
+    const k = Math.abs(it.inst[0][3]) / old.w;
+    it.inst[0][3] = Math.sign(it.inst[0][3] || 1) * nf.w * k;
+    it.inst[0][4] = Math.sign(it.inst[0][4] || 1) * nf.h * k;
+  });
+}
+
+// ============================================================ ui: tools / props / layers
+function setHelp(html) { $("#help").innerHTML = html; }
+function setTool(id) {
+  tool = id;
+  pendingTp = null;
+  renderTools();
+  setHelp(TOOLS.find(t => t.id === id).help);
+  redraw();
+}
+function renderTools() {
+  const box = $("#tools");
+  box.replaceChildren(...TOOLS.map(t => {
+    const disabled = (t.id === "jumpthru" && cur && cur.types.op < 0) || (t.id === "fish" && cur && cur.types.fish < 0);
+    return el("button", {
+      className: tool === t.id ? "on" : "", disabled,
+      title: disabled ? (t.id === "fish" ? "Fish come with new maps (New map…)" : "This map has no jump-through platform picture. New maps do.") : t.help.replace(/<[^>]+>/g, ""),
+      on: { click: () => setTool(t.id) },
+    }, el("span", { className: "swatch", style: `background:${t.color}` }), t.label, el("kbd", {}, t.key));
+  }));
+  const opts = $("#toolOptions");
+  opts.replaceChildren();
+  if (tool === "block" && cur && cur.types.top >= 0) {
+    opts.append(el("div", { className: "row" },
+      el("label", { className: "chk" }, el("input", { type: "checkbox", id: "withTop", checked: true }), "Grass top on new ground")));
+  }
+  if (tool === "decor") renderDecorOptions(opts);
+}
+
+// decoration picker
+let decorState = { ti: -1, anim: "", frame: 0, layer: "bg2" };
+function decorTypes() {
+  const used = new Set();
+  for (const L of P[5]) if (/^map/.test(L[0])) for (const layer of L[9]) if (WORLD_LAYERS.includes(layer[0]))
+    for (const inst of layer[14]) if (kindOf(types[inst[1]].name) === "decor" && types[inst[1]].anims) used.add(inst[1]);
+  for (const n of DECOR_SETS) if (typeByName[n]) used.add(typeByName[n].i);
+  used.delete(typeByName.naklon && typeByName.naklon.i);  // invisible slope helper, placed automatically
+  return [...used].sort((a, b) => types[a].name.localeCompare(types[b].name));
+}
+function decorChoice() { return decorState.ti >= 0 ? decorState : null; }
+function renderDecorOptions(opts) {
+  const list = decorTypes();
+  if (decorState.ti < 0 && list.length) {
+    const first = [typeByName.water_decor, typeByName.tree].find(t => t && list.includes(t.i));
+    decorState = { ...decorState, ti: first ? first.i : list[0], anim: "", frame: 0 };
+  }
+  const t = types[decorState.ti];
+  if (!t) return;
+  if (!t.anims.some(a => a.name === decorState.anim)) decorState.anim = t.anims[0].name;
+  const anim = t.anims.find(a => a.name === decorState.anim);
+  decorState.frame = Math.min(decorState.frame, anim.frames.length - 1);
+  const prev = el("canvas", { id: "decorPreview", width: 64, height: 64 });
+  const c = frameCanvas(anim.frames[decorState.frame]);
+  if (c) { const k = Math.min(60 / c.width, 60 / c.height); prev.getContext("2d").drawImage(c, 32 - c.width * k / 2, 32 - c.height * k / 2, c.width * k, c.height * k); }
+  else setTimeout(() => tool === "decor" && renderTools(), 300);
+  opts.append(...[
+    el("div", { className: "row" }, el("label", {}, "Object"),
+      el("select", { on: { change: e => { decorState.ti = +e.target.value; decorState.frame = 0; renderTools(); } } },
+        ...list.map(i => el("option", { value: i, selected: i === decorState.ti }, types[i].name)))),
+    t.anims.length > 1 ? el("div", { className: "row" }, el("label", {}, "Anim"),
+      el("select", { on: { change: e => { decorState.anim = e.target.value; decorState.frame = 0; renderTools(); } } },
+        ...t.anims.map(a => el("option", { value: a.name, selected: a.name === decorState.anim }, a.name)))) : null,
+    el("div", { className: "row" }, prev,
+      el("button", { on: { click: () => { decorState.frame = (decorState.frame - 1 + anim.frames.length) % anim.frames.length; renderTools(); } } }, "◀"),
+      el("span", {}, `${decorState.frame + 1}/${anim.frames.length}`),
+      el("button", { on: { click: () => { decorState.frame = (decorState.frame + 1) % anim.frames.length; renderTools(); } } }, "▶")),
+    el("div", { className: "row" }, el("label", {}, "Layer"),
+      el("select", { on: { change: e => { decorState.layer = e.target.value; } } },
+        ...["bg2", "game2"].map(l => el("option", { value: l, selected: l === decorState.layer }, l === "bg2" ? "bg2 (behind players)" : "game2 (in front)")))),
+  ].filter(Boolean));
+}
+
+function numInput(value, onSet, step = 1) {
+  return el("input", { type: "number", value: Math.round(value * 100) / 100, step,
+    on: { change: e => { const v = parseFloat(e.target.value); if (!isNaN(v)) change(() => onSet(v)); } } });
+}
+const NAMES = { block: "Ground", jumpthru: "Jump-through platform", top: "Grass top", spawner: "Powerup spawn", pad: "Jump pad",
+  fish: "Fish", bgimg: "Background picture", decor: "Decoration" };
+
+function renderPropsLight() { if (!drag) renderProps(); else if (sel && sel.t === "item") {
+  const g = geo(sel.item.inst);
+  const ins = $("#props").querySelectorAll("input[type=number]");
+  if (ins.length >= 4) { ins[0].value = Math.round(g.x); ins[1].value = Math.round(g.y); ins[2].value = Math.round(Math.abs(g.w)); ins[3].value = Math.round(Math.abs(g.h)); }
+} }
+
+function renderProps() {
+  const p = $("#props");
+  p.replaceChildren();
+  if (!cur) return;
+  if (!sel) return renderMapProps(p);
+  if (sel.t === "start") {
+    p.append(el("h2", {}, `Player ${sel.i + 1} start`), el("p", { className: "hint" }, "Drag it where this player should start."));
+    return;
+  }
+  if (sel.t === "tp") {
+    p.append(el("h2", {}, `Teleporter pair ${sel.i + 1}`),
+      el("p", { className: "hint" }, "Players stepping into A come out at B (and back). The game picks one pair each round."),
+      el("div", { className: "row" }, el("button", { className: "danger", on: { click: deleteSel } }, "Delete pair")));
+    return;
+  }
+  const it = sel.t === "pt" ? sel.fish : sel.item;
+  const g = geo(it.inst);
+  p.append(el("h2", {}, NAMES[it.kind] || types[it.inst[1]].name));
+  if (it.kind === "decor") p.append(el("p", { className: "hint" }, types[it.inst[1]].name));
+  p.append(
+    el("div", { className: "row" }, el("label", {}, "X"), numInput(g.x, v => moveItem(it, v - it.inst[0][0], 0)),
+      el("label", { style: "min-width:0" }, "Y"), numInput(g.y, v => moveItem(it, 0, v - it.inst[0][1]))),
+  );
+  if (it.kind !== "spawner") p.append(
+    el("div", { className: "row" }, el("label", {}, "Width"), numInput(Math.abs(g.w), v => { it.inst[0][3] = Math.sign(g.w || 1) * Math.max(4, v); syncTop(it); }),
+      el("label", { style: "min-width:0" }, "H"), numInput(Math.abs(g.h), v => { it.inst[0][4] = Math.sign(g.h || 1) * Math.max(4, v); syncTop(it); })),
+    el("div", { className: "row" }, el("label", {}, "Angle"), numInput(g.a * 180 / Math.PI, v => { it.inst[0][6] = v * Math.PI / 180; syncTop(it); }), el("span", { className: "hint", style: "margin:0" }, "degrees")),
+  );
+  if (it.kind === "block" && cur.types.top >= 0) {
+    p.append(el("div", { className: "row" }, el("label", { className: "chk" },
+      el("input", { type: "checkbox", checked: !!it.top, on: { change: e => change(() => {
+        if (e.target.checked) addTop(it); else { removeInst(it.top.inst); rebuild(); }
+      }) } }), "Grass top")));
+  }
+  if (it.kind === "decor") {
+    const t = types[it.inst[1]], pp = it.inst[5];
+    const row = el("div", { className: "row" });
+    if (t.anims && pp && typeof pp[1] === "string") {
+      const a = t.anims.find(a => a.name === pp[1]) || t.anims[0];
+      if (a.frames.length > 1) row.append(el("button", { on: { click: () => cycleFrame(it, -1) } }, "◀"),
+        el("span", {}, `picture ${(pp[2] | 0) + 1}/${a.frames.length}`), el("button", { on: { click: () => cycleFrame(it, 1) } }, "▶"));
+    }
+    row.append(el("button", { on: { click: () => change(() => { it.inst[0][3] *= -1; }) } }, "Flip"));
+    p.append(row);
+    p.append(el("div", { className: "row" }, el("label", {}, "Layer"),
+      el("select", { on: { change: e => change(() => { removeInst(it.inst); addToLayer(e.target.value, it.inst); rebuild(); }) } },
+        ...WORLD_LAYERS.filter(l => l !== "bg").map(l => el("option", { value: l, selected: l === it.layer }, l)))));
+  }
+  if (it.kind === "fish") renderFishProps(p, it);
+  const order = el("div", { className: "row" },
+    el("button", { title: "Draw in front of the other things on this layer", on: { click: () => change(() => {
+      const arr = cur.layers[it.layer]; const objs = [it.inst, ...(it.top ? [it.top.inst] : [])];
+      for (const o of objs) arr.splice(arr.indexOf(o), 1); arr.push(...objs); rebuild(); }) } }, "To front"),
+    el("button", { title: "Draw behind the other things on this layer", on: { click: () => change(() => {
+      const arr = cur.layers[it.layer]; const objs = [it.inst, ...(it.top ? [it.top.inst] : [])];
+      for (const o of objs) arr.splice(arr.indexOf(o), 1); arr.unshift(...objs); rebuild(); }) } }, "To back"));
+  if (it.kind !== "bgimg") p.append(order, el("div", { className: "row" },
+    el("button", { on: { click: () => change(() => { sel = { t: "item", item: duplicateItem(it) }; }) } }, "Duplicate"),
+    el("button", { className: "danger", on: { click: deleteSel } }, "Delete")));
+}
+
+function renderFishProps(p, it) {
+  const f = it.fish;
+  const speed = el("input", { type: "range", min: 50, max: 900, step: 10, value: f.speed,
+    on: { input: e => { if (!liveBefore) liveBefore = snapshot(); f.speed = +e.target.value; speedLbl.textContent = f.speed; redraw(); },
+      change: () => { if (liveBefore) { pendingBefore = liveBefore; liveBefore = null; endChange(); } } } });
+  const speedLbl = el("span", {}, String(f.speed));
+  p.append(
+    el("div", { className: "row" }, el("label", {}, "Speed"), speed, speedLbl),
+    el("div", { className: "row" }, el("label", {}, "Path"),
+      el("select", { on: { change: e => change(() => { f.mode = e.target.value; }) } },
+        el("option", { value: "pingpong", selected: f.mode === "pingpong" }, "Back and forth"),
+        el("option", { value: "loop", selected: f.mode === "loop" }, "Loop around"))),
+    el("div", { className: "row" }, el("label", {}, "Wait"), numInput(f.pause || 0, v => { f.pause = Math.max(0, v); }, 0.1),
+      el("span", { className: "hint", style: "margin:0" }, "sec at the ends")),
+    el("div", { className: "row" }, el("label", { className: "chk" },
+      el("input", { type: "checkbox", checked: f.flip !== false, on: { change: e => change(() => { f.flip = e.target.checked; }) } }),
+      "Turn around to face where it swims")),
+    el("div", { className: "row" },
+      el("button", { className: tool === "fish" ? "on" : "", on: { click: () => {
+        if (tool === "fish") { setTool("select"); sel = { t: "item", item: it }; }
+        else { setTool("fish"); sel = { t: "pt", fish: it, i: f.path.length - 1 };
+          setHelp("Click to add points to the path. <b>Enter</b> when done. Drag points to move them, <b>Alt+click</b> to remove."); }
+        renderProps(); redraw();
+      } } }, tool === "fish" ? "Done adding points" : "Add path points"),
+      el("button", { on: { click: () => change(() => { f.path = [f.path[0]]; it.fish = f; }) } }, "Clear path")),
+    el("p", { className: "hint" }, `${f.path.length} point${f.path.length === 1 ? "" : "s"}. Players can stand on fish and jump up through them. ` +
+      "Repaint the fish in the sprite editor (object \"fish\")."),
+  );
+}
+let liveBefore = null;  // undo snapshot taken when the speed slider starts moving
+
+function renderMapProps(p) {
+  const W = cur.L[1], H = cur.L[2];
+  const bg = cur.L[9].find(l => l[0] === "bg");
+  const hex = "#" + bg[4].map(v => v.toString(16).padStart(2, "0")).join("");
+  p.append(el("h2", {}, `Map: ${cur.name}`),
+    el("div", { className: "row" }, el("label", {}, "Size"),
+      numInput(W, v => resizeMap(Math.max(1920, Math.round(v)), cur.L[2]), 100), "×",
+      numInput(H, v => resizeMap(cur.L[1], Math.max(1080, Math.round(v))), 100)),
+    el("p", { className: "hint" }, `That's about ${Math.round(W / PLAYER.w)} players wide and ${Math.round(H / PLAYER.h)} tall, ` +
+      `or ${(W / SCREEN.w).toFixed(1)} × ${(H / SCREEN.h).toFixed(1)} screens when zoomed in.`),
+    el("div", { className: "row" }, el("label", {}, "Sky"),
+      el("input", { type: "color", value: hex, on: { change: e => change(() => {
+        const v = e.target.value; bg[4] = [1, 3, 5].map(i => parseInt(v.slice(i, i + 2), 16)); }) } }),
+      el("span", { className: "hint", style: "margin:0" }, "behind everything")),
+  );
+  if (cur.types.bg >= 0) p.append(el("div", { className: "row" }, el("label", {}, "Picture"),
+    el("button", { on: { click: () => $("#bgFile").click() } }, "Upload background…")),
+    el("p", { className: "hint" }, "Your drawing gets stretched to cover the whole map. You can also paint it in the sprite editor."));
+
+  const starts = !!cur.extras.starts;
+  p.append(el("div", { className: "row" }, el("label", { className: "chk" },
+    el("input", { type: "checkbox", checked: starts, on: { change: e => change(() => {
+      if (e.target.checked) {
+        const cx = view.x + canvas.clientWidth / 2 / view.z, cy = view.y + canvas.clientHeight / 2 / view.z;
+        cur.extras.starts = [0, 1, 2, 3].map(i => [snap(cx - 300 + i * 200), snap(cy)]);
+      } else delete cur.extras.starts;
+    }) } }), "Custom player start spots")));
+  if (!starts) p.append(el("p", { className: "hint" }, "Off: players drop in at a random spot around x 2500–3400, y 1450 (the game's default)."));
+
+  const tp = !!cur.extras.teleports;
+  p.append(el("div", { className: "row" }, el("label", { className: "chk" },
+    el("input", { type: "checkbox", checked: tp, on: { change: e => change(() => {
+      if (e.target.checked) cur.extras.teleports = []; else delete cur.extras.teleports;
+    }) } }), "Custom teleporters")));
+  p.append(el("p", { className: "hint" }, tp
+    ? `${cur.extras.teleports.length} pair(s). Use the Teleport tool to add some. No pairs = no teleporters on this map.`
+    : "Off: this map keeps the teleporter spots built into the game."));
+  const counts = {};
+  for (const it of items) counts[it.kind] = (counts[it.kind] || 0) + 1;
+  p.append(el("p", { className: "hint" },
+    `${counts.spawner || 0} powerup spots · ${counts.block || 0} ground · ${counts.jumpthru || 0} jump-thru · ${counts.pad || 0} jump pads · ${counts.fish || 0} fish`));
+}
+
+function resizeMap(W, H) {
+  cur.L[1] = W; cur.L[2] = H;
+  for (const it of items) if (it.kind === "bgimg" && it.layer === "bg") { it.inst[0][3] = W; it.inst[0][4] = H; }
+  fitView();
+}
+
+function renderLayers() {
+  const box = $("#layerRows");
+  box.replaceChildren(...[...WORLD_LAYERS].reverse().map(ln => el("div", { className: "row" },
+    el("label", {}, ln),
+    el("button", { title: "Show / hide", className: hiddenLayers.has(ln) ? "" : "on", style: "padding:2px 8px",
+      on: { click: () => { hiddenLayers.has(ln) ? hiddenLayers.delete(ln) : hiddenLayers.add(ln); renderLayers(); redraw(); } } },
+      hiddenLayers.has(ln) ? "hidden" : "shown"),
+    el("button", { title: "Locked layers can't be clicked", className: lockedLayers.has(ln) ? "on" : "", style: "padding:2px 8px",
+      on: { click: () => { lockedLayers.has(ln) ? lockedLayers.delete(ln) : lockedLayers.add(ln); renderLayers(); } } },
+      lockedLayers.has(ln) ? "locked" : "unlocked"))));
+}
+
+// ============================================================ save / test / new / background
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", body });
+  let j = {};
+  try { j = await r.json(); } catch (e) { /* plain text */ }
+  if (!r.ok) throw new Error(j.error || `server said ${r.status}`);
+  return j;
+}
+async function save() {
+  if (!cur) return false;
+  syncSlopes();
+  setStatus("Saving…");
+  const bg = cur.L[9].find(l => l[0] === "bg");
+  const payload = { layout: cur.name, width: cur.L[1], height: cur.L[2], bgColor: bg ? bg[4] : null,
+    layers: cur.layers, extras: cur.extras };
+  try {
+    await post("/api/save-map", JSON.stringify(payload));
+    // keep our copy of the project in sync with what's on disk
+    const L = P[5].find(L => L[0] === cur.name);
+    L[1] = cur.L[1]; L[2] = cur.L[2];
+    for (const layer of L[9]) if (cur.layers[layer[0]]) layer[14] = JSON.parse(JSON.stringify(cur.layers[layer[0]]));
+    if (bg) L[9].find(l => l[0] === "bg")[4] = bg[4].slice();
+    dirty = false;
+    setStatus("Saved ✓", "ok");
+    return true;
+  } catch (e) {
+    setStatus("Save failed: " + e.message + (location.port ? "" : " (start it with python3 tools/editor_server.py maps)"), "bad");
+    return false;
+  }
+}
+async function test() {
+  if (dirty && !(await save())) return;
+  window.open(`../?testmap=${encodeURIComponent(cur.name)}`, "tagtest");
+}
+async function newMap() {
+  const names = mapNames();
+  let n = 4;
+  while (names.includes("map" + n)) n++;
+  const name = prompt("Name for the new map (like map4 or map_water):", "map" + n);
+  if (!name) return;
+  if (dirty && !confirm("You have unsaved changes on this map. Throw them away?")) return;
+  setStatus("Creating " + name + "…");
+  try {
+    await post("/api/new-map", JSON.stringify({ name: name.trim(), template: "map1" }));
+  } catch (e) { return setStatus("Couldn't create it: " + e.message, "bad"); }
+  await loadProject();
+  fillMapSelect(name.trim());
+  await openMap(name.trim());
+  setStatus(`Created ${name}. Draw some ground, then hit Test in game.`, "ok");
+}
+async function uploadBackground(file) {
+  if (dirty && !(await save())) return;
+  const img = await createImageBitmap(file);
+  const W = cur.L[1], H = cur.L[2];
+  // keep it a sensible texture size: map size / 2, at most 4096 on a side
+  let w = Math.round(W / 2), h = Math.round(H / 2);
+  const k = Math.min(1, 4096 / w, 4096 / h);
+  w = Math.round(w * k); h = Math.round(h * k);
+  const c = el("canvas", { width: w, height: h });
+  c.getContext("2d").drawImage(img, 0, 0, w, h);
+  const ratioImg = img.width / img.height, ratioMap = W / H;
+  const blob = await new Promise(r => c.toBlob(r, "image/png"));
+  setStatus("Uploading background…");
+  try { await post(`/api/map-bg?layout=${encodeURIComponent(cur.name)}`, blob); }
+  catch (e) { return setStatus("Upload failed: " + e.message, "bad"); }
+  bust = Date.now(); sheets.clear(); frameCache.clear();
+  await loadProject();
+  await openMap(cur.name);
+  setStatus(Math.abs(ratioImg / ratioMap - 1) > 0.05
+    ? `Background saved, but it was stretched: your picture is ${img.width}×${img.height}, the map is ${W}×${H}.`
+    : "Background saved ✓", Math.abs(ratioImg / ratioMap - 1) > 0.05 ? "warn" : "ok");
+}
+
+function fillMapSelect(selected) {
+  const s = $("#mapSelect");
+  s.replaceChildren(...mapNames().map(n => el("option", { value: n, selected: n === selected }, n)));
+}
+
+function toggleSnap() { snapOn = !snapOn; $("#snapBtn").classList.toggle("on", snapOn); }
+function toggleGuide() { guideOn = !guideOn; $("#guideBtn").classList.toggle("on", guideOn); redraw(); }
+function toggleScreen() { screenOn = !screenOn; $("#screenBtn").classList.toggle("on", screenOn); redraw(); }
+function togglePlay() {
+  playing = !playing;
+  $("#playBtn").classList.toggle("on", playing);
+  $("#playBtn").textContent = playing ? "■ Stop preview" : "▶ Preview fish";
+  playT0 = performance.now();
+  const loop = () => { if (!playing) return redraw(); draw(); requestAnimationFrame(loop); };
+  loop();
+}
+
+// ============================================================ boot
+$("#undo").onclick = undo; $("#redo").onclick = redo;
+$("#snapBtn").onclick = toggleSnap; $("#guideBtn").onclick = toggleGuide; $("#screenBtn").onclick = toggleScreen; $("#playBtn").onclick = togglePlay;
+$("#fitBtn").onclick = fitView; $("#saveBtn").onclick = save; $("#testBtn").onclick = test; $("#newMap").onclick = newMap;
+$("#bgFile").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) uploadBackground(f); };
+$("#mapSelect").onchange = async e => {
+  if (dirty && !confirm("You have unsaved changes on this map. Throw them away?")) { e.target.value = cur.name; return; }
+  await openMap(e.target.value);
+};
+addEventListener("resize", resize);
+addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+(async () => {
+  try {
+    await loadProject();
+  } catch (e) {
+    setStatus("Couldn't load data.json — start this with: python3 tools/editor_server.py maps", "bad");
+    return;
+  }
+  const names = mapNames();
+  const want = new URLSearchParams(location.search).get("map");
+  const first = names.includes(want) ? want : names[names.length - 1];
+  fillMapSelect(first);
+  resize();
+  await openMap(first);
+  setTool("select");
+  $("#undo").disabled = $("#redo").disabled = true;
+})();
+</script>
+</body>
+</html>
